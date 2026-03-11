@@ -1,68 +1,86 @@
-# React Component Jump
+# React Code Locator
 
 개발 중인 React 앱에서 요소를 `Shift + Click`하면 해당 UI와 연결된 소스 위치를 찾는 패키지입니다.
 
-- JSX 태그의 `__source`를 우선 사용해서 정확한 JSX 위치를 찾습니다.
+- JSX 디버그 정보가 있으면 우선 사용해서 정확한 JSX 위치를 찾습니다.
 - JSX 정보가 없으면 컴포넌트 정의 위치로 fallback 합니다.
 - Vite, Webpack, Babel, 브라우저 런타임을 각각 분리해서 사용할 수 있습니다.
 
 ## 설치
 
 ```bash
-npm i -D react-component-jump
+npm i -D react-code-locator
 ```
 
 로컬 패키지로 연결할 때는:
 
 ```bash
-npm i -D /absolute/path/to/react-component-jump
+npm i -D /absolute/path/to/react-code-locator
 ```
 
 ## 빠른 시작
 
-Vite 환경이면 `react-component-jump/vite`만 붙이면 됩니다.
+Vite 환경에서는 기존 `@vitejs/plugin-react` 설정에 Babel 플러그인을 추가하고, `react-code-locator/vite`는 클라이언트 자동 주입만 맡깁니다.
 
 ```ts
 import { defineConfig } from "vite";
-import { reactComponentJump } from "react-component-jump/vite";
+import react from "@vitejs/plugin-react";
+import { babelInjectComponentSource, reactComponentJump } from "react-code-locator/vite";
 
 export default defineConfig(({ command }) => ({
-  plugins: reactComponentJump({
-    command,
-    locator: {
-      triggerKey: "shift",
-    },
-  }),
+  plugins: [
+    react({
+      babel: {
+        plugins: [babelInjectComponentSource],
+      },
+    }),
+    ...reactComponentJump({
+      command,
+      locator: {
+        triggerKey: "shift",
+      },
+    }),
+  ],
 }));
 ```
 
 개발 서버에서 `Shift + Click`하면 브라우저 콘솔에 이런 식으로 출력됩니다.
 
 ```text
-[react-component-jump] src/components/Button.tsx:14:1 [jsx]
+[react-code-locator] src/components/Button.tsx:14:1 [jsx]
 ```
 
 ## 제공 엔트리
 
-### `react-component-jump/vite`
+### `react-code-locator/vite`
 
 Vite + React 프로젝트용 기본 진입점입니다.
 
-- 개발 서버에서만 Babel 플러그인을 주입합니다.
+- 개발 서버에서만 브라우저 클라이언트를 자동 주입합니다.
+- HTML에는 bare import를 직접 넣지 않고 Vite 가상 모듈을 통해 클라이언트를 로드합니다.
 - 기본값으로 브라우저 클라이언트도 자동 주입합니다.
+- React 플러그인은 직접 만들지 않습니다. 기존 `@vitejs/plugin-react` 설정에 Babel 플러그인을 추가해서 사용해야 합니다.
 
 ```ts
 import { defineConfig } from "vite";
-import { reactComponentJump } from "react-component-jump/vite";
+import react from "@vitejs/plugin-react";
+import { babelInjectComponentSource, reactComponentJump } from "react-code-locator/vite";
 
 export default defineConfig(({ command }) => ({
-  plugins: reactComponentJump({
-    command,
-    locator: {
-      triggerKey: "shift",
-    },
-    injectClient: true,
-  }),
+  plugins: [
+    react({
+      babel: {
+        plugins: [babelInjectComponentSource],
+      },
+    }),
+    ...reactComponentJump({
+      command,
+      locator: {
+        triggerKey: "shift",
+      },
+      injectClient: true,
+    }),
+  ],
 }));
 ```
 
@@ -73,13 +91,14 @@ export default defineConfig(({ command }) => ({
 - `locator.onLocate(result)`: 위치를 찾았을 때 커스텀 처리
 - `locator.onError(error)`: 위치를 못 찾았을 때 커스텀 처리
 - `injectClient`: `false`로 두면 브라우저 런타임 자동 주입 비활성화
+- `babelInjectComponentSource`: 기존 `@vitejs/plugin-react`의 `babel.plugins`에 추가
 
-### `react-component-jump/client`
+### `react-code-locator/client`
 
 브라우저 런타임만 수동으로 붙이고 싶을 때 사용합니다.
 
 ```ts
-import { enableReactComponentJump } from "react-component-jump/client";
+import { enableReactComponentJump } from "react-code-locator/client";
 
 const dispose = enableReactComponentJump({
   triggerKey: "shift",
@@ -96,37 +115,46 @@ dispose();
 
 ```ts
 import { defineConfig } from "vite";
-import { reactComponentJump } from "react-component-jump/vite";
+import react from "@vitejs/plugin-react";
+import { babelInjectComponentSource, reactComponentJump } from "react-code-locator/vite";
 
 export default defineConfig(({ command }) => ({
-  plugins: reactComponentJump({
-    command,
-    injectClient: false,
-  }),
+  plugins: [
+    react({
+      babel: {
+        plugins: [babelInjectComponentSource],
+      },
+    }),
+    ...reactComponentJump({
+      command,
+      injectClient: false,
+    }),
+  ],
 }));
 ```
 
 그 다음 앱 엔트리에서:
 
 ```ts
-import { enableReactComponentJump } from "react-component-jump/client";
+import { enableReactComponentJump } from "react-code-locator/client";
 
 if (import.meta.env.DEV) {
   enableReactComponentJump();
 }
 ```
 
-### `react-component-jump/babel`
+### `react-code-locator/babel`
 
 Babel 플러그인만 따로 사용할 때 사용합니다.
 
-이 플러그인은 두 가지를 주입합니다.
+이 플러그인은 기본적으로 한 가지를 주입합니다.
 
-- JSX 요소에 `__source`
 - React 컴포넌트 함수/클래스에 `__componentSourceLoc`
 
+옵션으로 JSX 요소에도 `__componentSourceLoc`를 주입할 수 있지만 기본값은 `false`입니다.
+
 ```js
-const { babelInjectComponentSource } = require("react-component-jump/babel");
+const { babelInjectComponentSource } = require("react-code-locator/babel");
 
 module.exports = {
   plugins: [babelInjectComponentSource],
@@ -136,19 +164,29 @@ module.exports = {
 ESM 설정 예시:
 
 ```ts
-import { babelInjectComponentSource } from "react-component-jump/babel";
+import { babelInjectComponentSource } from "react-code-locator/babel";
 
 export default {
   plugins: [babelInjectComponentSource],
 };
 ```
 
-### `react-component-jump/webpack`
+JSX 주입이 꼭 필요하면:
+
+```ts
+import { babelInjectComponentSource } from "react-code-locator/babel";
+
+export default {
+  plugins: [[babelInjectComponentSource, { injectJsxSource: true }]],
+};
+```
+
+### `react-code-locator/webpack`
 
 Webpack 설정에 Babel 플러그인과 런타임 엔트리를 함께 주입합니다.
 
 ```js
-const { withReactComponentJump } = require("react-component-jump/webpack");
+const { withReactComponentJump } = require("react-code-locator/webpack");
 const config = createExistingWebpackConfig();
 
 module.exports = withReactComponentJump(config, {
@@ -167,12 +205,12 @@ module.exports = withReactComponentJump(config, {
 - React 앱이 Babel을 통해 트랜스파일되어야 합니다.
 - `module.rules` 안에 `babel-loader`가 있어야 자동 주입이 동작합니다.
 
-### `react-component-jump`
+### `react-code-locator`
 
 런타임 유틸만 직접 사용할 때의 기본 엔트리입니다.
 
 ```ts
-import { enableReactComponentJump, locateComponentSource } from "react-component-jump";
+import { enableReactComponentJump, locateComponentSource } from "react-code-locator";
 ```
 
 제공 API:

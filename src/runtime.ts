@@ -6,6 +6,8 @@ type ReactFiber = {
   return?: ReactFiber | null;
   type?: unknown;
   elementType?: unknown;
+  pendingProps?: Record<string, unknown> | null;
+  memoizedProps?: Record<string, unknown> | null;
   _debugSource?: {
     fileName?: string;
     lineNumber?: number;
@@ -22,6 +24,12 @@ export type LocatorOptions = {
   triggerKey?: TriggerKey;
   onLocate?: (result: LocatorResult) => void;
   onError?: (error: unknown) => void;
+};
+
+type StatusOverlay = {
+  setStatus: (message: string, tone?: "idle" | "success" | "error") => void;
+  setCopyValue: (value: string | null) => void;
+  remove: () => void;
 };
 
 function isTriggerPressed(event: MouseEvent, triggerKey: TriggerKey) {
@@ -87,7 +95,27 @@ function getSourceFromType(type: unknown) {
   return typeof source === "string" ? source : null;
 }
 
-function resolveSourceFromFiber(fiber: ReactFiber | null) {
+function getSourceFromProps(props: Record<string, unknown> | null | undefined) {
+  const source = props?.[SOURCE_PROP];
+  return typeof source === "string" ? source : null;
+}
+
+function resolveJsxSourceFromFiber(fiber: ReactFiber | null) {
+  let current = fiber;
+
+  while (current) {
+    const source = getSourceFromProps(current.pendingProps) ?? getSourceFromProps(current.memoizedProps);
+    if (source) {
+      return source;
+    }
+
+    current = current.return ?? null;
+  }
+
+  return null;
+}
+
+function resolveComponentSourceFromFiber(fiber: ReactFiber | null) {
   let current = fiber;
 
   while (current) {
@@ -117,6 +145,102 @@ function getDebugSource(fiber: ReactFiber | null) {
   return null;
 }
 
+function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  const element = document.createElement("div");
+  let currentText = "";
+  let copyValue: string | null = null;
+  let hideTimer: ReturnType<typeof setTimeout> | null = null;
+  element.setAttribute("data-react-code-locator", "true");
+  Object.assign(element.style, {
+    position: "fixed",
+    right: "12px",
+    bottom: "12px",
+    zIndex: "2147483647",
+    padding: "8px 10px",
+    borderRadius: "8px",
+    background: "rgba(17, 24, 39, 0.92)",
+    color: "#fff",
+    fontSize: "12px",
+    lineHeight: "1.4",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+    boxShadow: "0 8px 30px rgba(0, 0, 0, 0.25)",
+    pointerEvents: "auto",
+    cursor: "pointer",
+    maxWidth: "min(70vw, 720px)",
+    wordBreak: "break-all",
+    opacity: "0",
+    transition: "opacity 120ms ease",
+  });
+
+  const show = (message: string, tone: "idle" | "success" | "error") => {
+    currentText = message;
+    element.textContent = message;
+    element.style.background =
+      tone === "success"
+        ? "rgba(6, 95, 70, 0.92)"
+        : tone === "error"
+          ? "rgba(153, 27, 27, 0.94)"
+          : "rgba(17, 24, 39, 0.92)";
+    element.style.opacity = "1";
+    element.style.pointerEvents = "auto";
+
+    if (hideTimer) {
+      clearTimeout(hideTimer);
+    }
+
+    hideTimer = setTimeout(() => {
+      element.style.opacity = "0";
+      element.style.pointerEvents = "none";
+    }, 1500);
+  };
+
+  element.addEventListener("click", async () => {
+    if (!copyValue) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(copyValue);
+      show(`[react-code-locator] copied`, "success");
+    } catch {
+      show(`[react-code-locator] copy failed`, "error");
+    }
+  });
+
+  show(`[react-code-locator] enabled (${triggerKey}+click)`, "idle");
+
+  const mount = () => {
+    if (!element.isConnected && document.body) {
+      document.body.appendChild(element);
+    }
+  };
+
+  if (document.body) {
+    mount();
+  } else {
+    document.addEventListener("DOMContentLoaded", mount, { once: true });
+  }
+
+  return {
+    setStatus(message, tone = "idle") {
+      show(message, tone);
+    },
+    setCopyValue(value) {
+      copyValue = value;
+    },
+    remove() {
+      if (hideTimer) {
+        clearTimeout(hideTimer);
+      }
+      element.remove();
+    },
+  };
+}
+
 export function locateComponentSource(target: EventTarget | null): LocatorResult | null {
   const elementTarget =
     target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
@@ -125,15 +249,15 @@ export function locateComponentSource(target: EventTarget | null): LocatorResult
     return null;
   }
 
-  const debugSource = getDebugSource(fiber);
-  if (debugSource) {
+  const jsxSource = resolveJsxSourceFromFiber(fiber) ?? getDebugSource(fiber);
+  if (jsxSource) {
     return {
-      source: debugSource,
+      source: jsxSource,
       mode: "jsx",
     };
   }
 
-  const componentSource = resolveSourceFromFiber(fiber);
+  const componentSource = resolveComponentSourceFromFiber(fiber);
   if (!componentSource) {
     return null;
   }
@@ -145,17 +269,34 @@ export function locateComponentSource(target: EventTarget | null): LocatorResult
 }
 
 export function enableReactComponentJump(options: LocatorOptions = {}) {
+  const overlay = createStatusOverlay(options.triggerKey ?? "shift");
   const {
     triggerKey = "shift",
     onLocate = (result) => {
-      console.log(`[react-component-jump] ${result.source} [${result.mode}]`);
+      console.log(`[react-code-locator] ${result.source}`);
+      overlay?.setCopyValue(result.source);
+      overlay?.setStatus(`[react-code-locator] ${result.source}`, "success");
     },
     onError = (error) => {
-      console.error("[react-component-jump]", error);
+      console.error("[react-code-locator]", error);
+      const message = error instanceof Error ? error.message : String(error);
+      overlay?.setCopyValue(null);
+      overlay?.setStatus(`[react-code-locator] ${message}`, "error");
     },
   } = options;
 
+  console.log("[react-code-locator] enabled", { triggerKey });
+
   const handler = (event: MouseEvent) => {
+    console.log("[react-code-locator] click", {
+      triggerKey,
+      shiftKey: event.shiftKey,
+      altKey: event.altKey,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      target: event.target,
+    });
+
     if (!isTriggerPressed(event, triggerKey)) {
       return;
     }
@@ -175,6 +316,6 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
 
   return () => {
     document.removeEventListener("click", handler, true);
+    overlay?.remove();
   };
 }
-

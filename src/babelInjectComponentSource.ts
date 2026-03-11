@@ -2,6 +2,11 @@ import path from "node:path";
 import { types as t, type NodePath, type PluginObj } from "@babel/core";
 import { SOURCE_PROP } from "./constants";
 
+export type BabelInjectComponentSourceOptions = {
+  injectJsxSource?: boolean;
+  injectComponentSource?: boolean;
+};
+
 type BabelState = {
   file?: {
     opts?: {
@@ -12,6 +17,31 @@ type BabelState = {
 
 function isComponentName(name: string) {
   return /^[A-Z]/.test(name);
+}
+
+function isSupportedComponentInit(node: t.Expression | null | undefined): boolean {
+  if (!node) {
+    return false;
+  }
+
+  if (t.isArrowFunctionExpression(node) || t.isFunctionExpression(node)) {
+    return true;
+  }
+
+  if (!t.isCallExpression(node)) {
+    return false;
+  }
+
+  if (t.isIdentifier(node.callee) && (node.callee.name === "memo" || node.callee.name === "forwardRef")) {
+    return true;
+  }
+
+  return (
+    t.isMemberExpression(node.callee) &&
+    t.isIdentifier(node.callee.object, { name: "React" }) &&
+    t.isIdentifier(node.callee.property) &&
+    (node.callee.property.name === "memo" || node.callee.property.name === "forwardRef")
+  );
 }
 
 function getSourceValue(state: BabelState, loc: { line: number; column: number } | null | undefined) {
@@ -69,7 +99,7 @@ function visitDeclaration(
       return [];
     }
 
-    if (!t.isArrowFunctionExpression(declarator.init) && !t.isFunctionExpression(declarator.init)) {
+    if (!isSupportedComponentInit(declarator.init)) {
       return [];
     }
 
@@ -87,13 +117,21 @@ function visitDeclaration(
   }
 }
 
-export function babelInjectComponentSource(): PluginObj<BabelState> {
+export function babelInjectComponentSource(
+  options: BabelInjectComponentSourceOptions = {},
+): PluginObj<BabelState> {
+  const { injectJsxSource = false, injectComponentSource = true } = options;
+
   return {
     name: "babel-inject-component-source",
     visitor: {
       JSXOpeningElement(pathNode, state) {
+        if (!injectJsxSource) {
+          return;
+        }
+
         const hasSourceProp = pathNode.node.attributes.some(
-          (attr) => t.isJSXAttribute(attr) && t.isJSXIdentifier(attr.name) && attr.name.name === "__source",
+          (attr) => t.isJSXAttribute(attr) && t.isJSXIdentifier(attr.name) && attr.name.name === SOURCE_PROP,
         );
         if (hasSourceProp) {
           return;
@@ -107,18 +145,16 @@ export function babelInjectComponentSource(): PluginObj<BabelState> {
 
         pathNode.node.attributes.push(
           t.jsxAttribute(
-            t.jsxIdentifier("__source"),
-            t.jsxExpressionContainer(
-              t.objectExpression([
-                t.objectProperty(t.identifier("fileName"), t.stringLiteral(filename)),
-                t.objectProperty(t.identifier("lineNumber"), t.numericLiteral(loc.line)),
-                t.objectProperty(t.identifier("columnNumber"), t.numericLiteral(loc.column + 1)),
-              ]),
-            ),
+            t.jsxIdentifier(SOURCE_PROP),
+            t.stringLiteral(getSourceValue(state, loc) ?? `${filename.replace(/\\/g, "/")}:${loc.line}:${loc.column + 1}`),
           ),
         );
       },
       Program(programPath, state) {
+        if (!injectComponentSource) {
+          return;
+        }
+
         const seen = new Set<string>();
 
         for (const childPath of programPath.get("body")) {
