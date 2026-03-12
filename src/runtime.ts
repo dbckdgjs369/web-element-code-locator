@@ -1,6 +1,11 @@
-import { SOURCE_PROP } from "./constants";
+import {
+  JSX_SOURCE_PROP,
+  JSX_SOURCE_REGISTRY_SYMBOL,
+  SOURCE_PROP,
+} from "./constants";
 
 export type TriggerKey = "alt" | "meta" | "ctrl" | "shift" | "none";
+export type LocatorMode = "direct" | "screen" | "implementation";
 
 type ReactFiber = {
   return?: ReactFiber | null;
@@ -8,6 +13,7 @@ type ReactFiber = {
   elementType?: unknown;
   pendingProps?: Record<string, unknown> | null;
   memoizedProps?: Record<string, unknown> | null;
+  _debugOwner?: ReactFiber | null;
   _debugSource?: {
     fileName?: string;
     lineNumber?: number;
@@ -17,7 +23,7 @@ type ReactFiber = {
 
 export type LocatorResult = {
   source: string;
-  mode: "jsx" | "component";
+  mode: LocatorMode;
 };
 
 export type LocatorOptions = {
@@ -29,6 +35,7 @@ export type LocatorOptions = {
 type StatusOverlay = {
   setStatus: (message: string, tone?: "idle" | "success" | "error") => void;
   setCopyValue: (value: string | null) => void;
+  setMode: (mode: LocatorMode) => void;
   remove: () => void;
 };
 
@@ -96,23 +103,20 @@ function getSourceFromType(type: unknown) {
 }
 
 function getSourceFromProps(props: Record<string, unknown> | null | undefined) {
-  const source = props?.[SOURCE_PROP];
-  return typeof source === "string" ? source : null;
-}
-
-function resolveJsxSourceFromFiber(fiber: ReactFiber | null) {
-  let current = fiber;
-
-  while (current) {
-    const source = getSourceFromProps(current.pendingProps) ?? getSourceFromProps(current.memoizedProps);
-    if (source) {
-      return source;
+  if (props && typeof props === "object") {
+    const registry = (globalThis as Record<symbol, unknown>)[
+      Symbol.for(JSX_SOURCE_REGISTRY_SYMBOL)
+    ];
+    if (registry instanceof WeakMap) {
+      const intrinsicSource = registry.get(props as object);
+      if (typeof intrinsicSource === "string") {
+        return intrinsicSource;
+      }
     }
-
-    current = current.return ?? null;
   }
 
-  return null;
+  const source = props?.[JSX_SOURCE_PROP];
+  return typeof source === "string" ? source : null;
 }
 
 function resolveComponentSourceFromFiber(fiber: ReactFiber | null) {
@@ -130,19 +134,112 @@ function resolveComponentSourceFromFiber(fiber: ReactFiber | null) {
   return null;
 }
 
-function getDebugSource(fiber: ReactFiber | null) {
+function getDirectDebugSource(fiber: ReactFiber | null) {
+  const debugSource = fiber?._debugSource;
+  if (debugSource?.fileName && typeof debugSource.lineNumber === "number") {
+    return `${debugSource.fileName.replace(/\\/g, "/")}:${debugSource.lineNumber}:${debugSource.columnNumber ?? 1}`;
+  }
+
+  return null;
+}
+
+function getSourceFile(source: string | null) {
+  if (!source) {
+    return null;
+  }
+
+  const match = source.match(/^(.*):\d+:\d+$/);
+  return match?.[1] ?? null;
+}
+
+function isProjectLocalSource(source: string) {
+  const file = getSourceFile(source);
+  if (!file) {
+    return false;
+  }
+
+  return !file.startsWith("../") && !file.startsWith("..\\");
+}
+
+type SourceCandidate = {
+  source: string;
+  file: string;
+};
+
+type ResolvedCandidates = {
+  direct: string | null;
+  screen: string | null;
+  implementation: string | null;
+};
+
+function resolveSourceCandidates(fiber: ReactFiber | null): ResolvedCandidates {
   let current = fiber;
+  const jsxCandidates: SourceCandidate[] = [];
+  const componentCandidates: SourceCandidate[] = [];
 
   while (current) {
-    const debugSource = current._debugSource;
-    if (debugSource?.fileName && typeof debugSource.lineNumber === "number") {
-      return `${debugSource.fileName.replace(/\\/g, "/")}:${debugSource.lineNumber}:${debugSource.columnNumber ?? 1}`;
+    const jsxSource =
+      getSourceFromProps(current.pendingProps) ?? getSourceFromProps(current.memoizedProps) ?? getDirectDebugSource(current);
+    if (jsxSource) {
+      const file = getSourceFile(jsxSource);
+      if (file && !jsxCandidates.some((candidate) => candidate.source === jsxSource)) {
+        jsxCandidates.push({ source: jsxSource, file });
+      }
+    }
+
+    const componentSource = getSourceFromType(current.type) ?? getSourceFromType(current.elementType);
+    if (componentSource) {
+      const file = getSourceFile(componentSource);
+      if (file && !componentCandidates.some((candidate) => candidate.source === componentSource)) {
+        componentCandidates.push({ source: componentSource, file });
+      }
     }
 
     current = current.return ?? null;
   }
 
-  return null;
+  const direct = jsxCandidates[0]?.source ?? null;
+  const nearestProjectLocalComponentFile = componentCandidates.find((candidate) => isProjectLocalSource(candidate.source))?.file;
+  let screen: string | null = null;
+  if (nearestProjectLocalComponentFile) {
+    const matchingJsxCandidate = jsxCandidates.find((candidate) => candidate.file === nearestProjectLocalComponentFile);
+    if (matchingJsxCandidate) {
+      screen = matchingJsxCandidate.source;
+    } else {
+      const matchingComponentCandidate = componentCandidates.find(
+        (candidate) => candidate.file === nearestProjectLocalComponentFile,
+      );
+      if (matchingComponentCandidate) {
+        screen = matchingComponentCandidate.source;
+      }
+    }
+  }
+
+  const implementationComponentCandidate =
+    componentCandidates.find((candidate) => !isProjectLocalSource(candidate.source))?.source ?? null;
+  const implementationJsxCandidate =
+    jsxCandidates.find((candidate) => !isProjectLocalSource(candidate.source))?.source ?? null;
+
+  const projectLocalJsxCandidate = jsxCandidates.find((candidate) => isProjectLocalSource(candidate.source))?.source ?? null;
+  const screenFallback = screen ?? projectLocalJsxCandidate ?? componentCandidates.find((candidate) => isProjectLocalSource(candidate.source))?.source ?? null;
+
+  return {
+    direct: direct ?? screenFallback,
+    screen: screenFallback,
+    implementation: implementationComponentCandidate ?? implementationJsxCandidate ?? screenFallback,
+  };
+}
+
+function getModeLabel(mode: LocatorMode) {
+  if (mode === "direct") {
+    return "1 direct";
+  }
+
+  if (mode === "screen") {
+    return "2 screen";
+  }
+
+  return "3 implementation";
 }
 
 function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
@@ -153,6 +250,7 @@ function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
   const element = document.createElement("div");
   let currentText = "";
   let copyValue: string | null = null;
+  let currentMode: LocatorMode = "screen";
   let hideTimer: ReturnType<typeof setTimeout> | null = null;
   element.setAttribute("data-react-code-locator", "true");
   Object.assign(element.style, {
@@ -178,7 +276,7 @@ function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
 
   const show = (message: string, tone: "idle" | "success" | "error") => {
     currentText = message;
-    element.textContent = message;
+    element.textContent = `[${getModeLabel(currentMode)}] ${message}`;
     element.style.background =
       tone === "success"
         ? "rgba(6, 95, 70, 0.92)"
@@ -211,7 +309,7 @@ function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
     }
   });
 
-  show(`[react-code-locator] enabled (${triggerKey}+click)`, "idle");
+  show(`[react-code-locator] enabled (${triggerKey}+click, alt+1/2/3 mode)`, "idle");
 
   const mount = () => {
     if (!element.isConnected && document.body) {
@@ -232,6 +330,10 @@ function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
     setCopyValue(value) {
       copyValue = value;
     },
+    setMode(mode) {
+      currentMode = mode;
+      show(`[react-code-locator] mode ${getModeLabel(mode)}`, "idle");
+    },
     remove() {
       if (hideTimer) {
         clearTimeout(hideTimer);
@@ -241,7 +343,7 @@ function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
   };
 }
 
-export function locateComponentSource(target: EventTarget | null): LocatorResult | null {
+export function locateComponentSource(target: EventTarget | null, mode: LocatorMode = "screen"): LocatorResult | null {
   const elementTarget =
     target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
   const fiber = getClosestReactFiber(elementTarget);
@@ -249,11 +351,12 @@ export function locateComponentSource(target: EventTarget | null): LocatorResult
     return null;
   }
 
-  const jsxSource = resolveJsxSourceFromFiber(fiber) ?? getDebugSource(fiber);
-  if (jsxSource) {
+  const candidates = resolveSourceCandidates(fiber);
+  const source = candidates[mode] ?? candidates.screen ?? candidates.direct ?? candidates.implementation;
+  if (source) {
     return {
-      source: jsxSource,
-      mode: "jsx",
+      source,
+      mode,
     };
   }
 
@@ -264,12 +367,13 @@ export function locateComponentSource(target: EventTarget | null): LocatorResult
 
   return {
     source: componentSource,
-    mode: "component",
+    mode,
   };
 }
 
 export function enableReactComponentJump(options: LocatorOptions = {}) {
   const overlay = createStatusOverlay(options.triggerKey ?? "shift");
+  let currentMode: LocatorMode = "screen";
   const {
     triggerKey = "shift",
     onLocate = (result) => {
@@ -287,6 +391,32 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
 
   console.log("[react-code-locator] enabled", { triggerKey });
 
+  const keyHandler = (event: KeyboardEvent) => {
+    if (!event.altKey) {
+      return;
+    }
+
+    if (event.key === "1") {
+      currentMode = "direct";
+      overlay?.setMode(currentMode);
+      event.preventDefault();
+      return;
+    }
+
+    if (event.key === "2") {
+      currentMode = "screen";
+      overlay?.setMode(currentMode);
+      event.preventDefault();
+      return;
+    }
+
+    if (event.key === "3") {
+      currentMode = "implementation";
+      overlay?.setMode(currentMode);
+      event.preventDefault();
+    }
+  };
+
   const handler = (event: MouseEvent) => {
     console.log("[react-code-locator] click", {
       triggerKey,
@@ -301,7 +431,7 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
       return;
     }
 
-    const result = locateComponentSource(event.target);
+    const result = locateComponentSource(event.target, currentMode);
     if (!result) {
       onError(new Error("No React component source metadata found for clicked element."));
       return;
@@ -313,9 +443,11 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
   };
 
   document.addEventListener("click", handler, true);
+  document.addEventListener("keydown", keyHandler, true);
 
   return () => {
     document.removeEventListener("click", handler, true);
+    document.removeEventListener("keydown", keyHandler, true);
     overlay?.remove();
   };
 }

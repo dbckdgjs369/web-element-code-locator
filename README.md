@@ -147,11 +147,12 @@ if (import.meta.env.DEV) {
 
 Babel 플러그인만 따로 사용할 때 사용합니다.
 
-이 플러그인은 기본적으로 한 가지를 주입합니다.
+이 플러그인은 기본적으로 두 가지를 주입합니다.
 
+- 커스텀 React 컴포넌트 JSX 호출부에 `__componentSourceLoc`
 - React 컴포넌트 함수/클래스에 `__componentSourceLoc`
 
-옵션으로 JSX 요소에도 `__componentSourceLoc`를 주입할 수 있지만 기본값은 `false`입니다.
+DOM 태그(`div`, `button`, `p`)에는 JSX prop을 주입하지 않습니다.
 
 ```js
 const { babelInjectComponentSource } = require("react-code-locator/babel");
@@ -171,13 +172,13 @@ export default {
 };
 ```
 
-JSX 주입이 꼭 필요하면:
+JSX 호출부 주입을 끄고 싶으면:
 
 ```ts
 import { babelInjectComponentSource } from "react-code-locator/babel";
 
 export default {
-  plugins: [[babelInjectComponentSource, { injectJsxSource: true }]],
+  plugins: [[babelInjectComponentSource, { injectJsxSource: false }]],
 };
 ```
 
