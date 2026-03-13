@@ -218,6 +218,15 @@ const transform = locator.config.transform;
 import { enableReactComponentJump, locateComponentSource } from "react-code-locator";
 ```
 
+루트 엔트리는 브라우저 런타임 전용입니다.
+빌드 도구 어댑터는 반드시 각 subpath에서 가져와야 합니다.
+
+- Babel: `react-code-locator/babel`
+- Vite: `react-code-locator/vite`
+- esbuild: `react-code-locator/esbuild`
+- SWC: `react-code-locator/swc`
+- Webpack: `react-code-locator/webpack`
+
 제공 API:
 
 - `enableReactComponentJump(options)`

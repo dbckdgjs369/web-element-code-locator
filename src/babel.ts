@@ -10,12 +10,17 @@ export type { BabelInjectComponentSourceOptions } from "./babelInjectComponentSo
 export type { SourceAdapterDescriptor, SourceAdapterKind, SourceInjectionOptions } from "./sourceAdapter";
 
 export function createBabelSourceAdapter(options: BabelInjectComponentSourceOptions = {}) {
+  const resolvedOptions = {
+    projectRoot: process.cwd(),
+    ...options,
+  };
+
   return defineSourceAdapter<BabelSourceAdapterConfig, BabelInjectComponentSourceOptions>({
     kind: "babel",
     name: "react-code-locator/babel",
-    options,
+    options: resolvedOptions,
     config: {
-      plugins: [[babelInjectComponentSource, options]],
+      plugins: [[babelInjectComponentSource, resolvedOptions]],
     },
   });
 }

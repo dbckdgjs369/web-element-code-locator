@@ -10,7 +10,7 @@ export async function transformSourceWithLocator(
   code: string,
   options: SourceTransformOptions,
 ) {
-  const { filename, sourceMaps = true, ...pluginOptions } = options;
+  const { filename, sourceMaps = true, projectRoot = process.cwd(), ...pluginOptions } = options;
   const result = await transformAsync(code, {
     filename,
     babelrc: false,
@@ -23,7 +23,7 @@ export async function transformSourceWithLocator(
     generatorOpts: {
       retainLines: true,
     },
-    plugins: [[babelInjectComponentSource, pluginOptions]],
+    plugins: [[babelInjectComponentSource, { ...pluginOptions, projectRoot }]],
   });
 
   return {

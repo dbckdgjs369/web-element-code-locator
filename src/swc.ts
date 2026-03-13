@@ -26,16 +26,21 @@ export async function transformSourceWithSwcLocator(
 }
 
 export function createSwcSourceAdapter(options: SourceInjectionOptions = {}) {
+  const resolvedOptions = {
+    projectRoot: process.cwd(),
+    ...options,
+  };
+
   const transform: SwcSourceTransform = (code, transformOptions) =>
     transformSourceWithSwcLocator(code, {
-      ...options,
+      ...resolvedOptions,
       ...transformOptions,
     });
 
   return defineSourceAdapter<SwcSourceAdapterConfig>({
     kind: "swc",
     name: "react-code-locator/swc",
-    options,
+    options: resolvedOptions,
     config: {
       transform,
     },

@@ -1,14 +1,7 @@
 import { types as t, type NodePath, type PluginObj } from "@babel/core";
-import {
-  JSX_SOURCE_PROP,
-  JSX_SOURCE_REGISTRY_SYMBOL,
-  SOURCE_PROP,
-} from "./constants";
+import { JSX_SOURCE_REGISTRY_SYMBOL, SOURCE_PROP } from "./constants";
 import type { SourceInjectionOptions } from "./sourceAdapter";
-import {
-  isExternalToProjectRoot,
-  toRelativeSource,
-} from "./sourceMetadata";
+import { toRelativeSource } from "./sourceMetadata";
 
 export type BabelInjectComponentSourceOptions = SourceInjectionOptions;
 
@@ -21,35 +14,8 @@ type BabelState = {
   injectedIntrinsicHelper?: boolean;
 };
 
-type BindingLike = {
-  path: NodePath;
-};
-
-const SOURCE_PROP_LOCAL = "_componentSourceLoc";
-const SOURCE_PROPS_REST = "__reactCodeLocatorProps";
-
 function isComponentName(name: string) {
   return /^[A-Z]/.test(name);
-}
-
-function isCustomComponentTag(
-  name: t.JSXIdentifier | t.JSXMemberExpression | t.JSXNamespacedName,
-) {
-  if (t.isJSXIdentifier(name)) {
-    return isComponentName(name.name);
-  }
-
-  if (t.isJSXMemberExpression(name)) {
-    return true;
-  }
-
-  return false;
-}
-
-function isIntrinsicElementTag(
-  name: t.JSXIdentifier | t.JSXMemberExpression | t.JSXNamespacedName,
-) {
-  return t.isJSXIdentifier(name) && /^[a-z]/.test(name.name);
 }
 
 function isElementFactoryIdentifier(name: string) {
@@ -75,48 +41,6 @@ function isReactElementFactoryCall(pathNode: NodePath<t.CallExpression>) {
     t.isMemberExpression(callee) &&
     t.isIdentifier(callee.object, { name: "React" }) &&
     t.isIdentifier(callee.property, { name: "createElement" })
-  );
-}
-
-function getRootJsxIdentifierName(
-  name: t.JSXIdentifier | t.JSXMemberExpression | t.JSXNamespacedName,
-): string | null {
-  if (t.isJSXIdentifier(name)) {
-    return name.name;
-  }
-
-  if (t.isJSXMemberExpression(name)) {
-    return getRootJsxIdentifierName(name.object);
-  }
-
-  return null;
-}
-
-function isStyledModuleImport(binding: BindingLike | undefined) {
-  if (!binding) {
-    return false;
-  }
-
-  if (
-    !binding.path.isImportSpecifier() &&
-    !binding.path.isImportDefaultSpecifier() &&
-    !binding.path.isImportNamespaceSpecifier()
-  ) {
-    return false;
-  }
-
-  const source = binding.path.parentPath.isImportDeclaration()
-    ? binding.path.parentPath.node.source.value
-    : null;
-  if (typeof source !== "string") {
-    return false;
-  }
-
-  const normalized = source.replace(/\\/g, "/");
-  return (
-    normalized === "./styled" ||
-    normalized === "../styled" ||
-    normalized.endsWith("/styled")
   );
 }
 
@@ -151,135 +75,6 @@ function isSupportedComponentInit(
   );
 }
 
-function hasSourcePropBinding(pattern: t.ObjectPattern) {
-  return pattern.properties.some((property: t.ObjectPattern["properties"][number]) => {
-    if (!t.isObjectProperty(property)) {
-      return false;
-    }
-
-    return (
-      t.isIdentifier(property.key) && property.key.name === JSX_SOURCE_PROP
-    );
-  });
-}
-
-function injectSourcePropBinding(pattern: t.ObjectPattern) {
-  if (hasSourcePropBinding(pattern)) {
-    return;
-  }
-
-  const sourceBinding = t.objectProperty(
-    t.identifier(JSX_SOURCE_PROP),
-    t.identifier(SOURCE_PROP_LOCAL),
-    false,
-    false,
-  );
-
-  const restIndex = pattern.properties.findIndex((property: t.ObjectPattern["properties"][number]) =>
-    t.isRestElement(property),
-  );
-  if (restIndex === -1) {
-    pattern.properties.push(sourceBinding);
-    return;
-  }
-
-  pattern.properties.splice(restIndex, 0, sourceBinding);
-}
-
-function injectSourcePropIntoIdentifierParam(
-  node:
-    | t.FunctionDeclaration
-    | t.FunctionExpression
-    | t.ArrowFunctionExpression,
-  param: t.Identifier,
-) {
-  if (!t.isBlockStatement(node.body)) {
-    node.body = t.blockStatement([t.returnStatement(node.body)]);
-  }
-
-  const alreadyInjected = node.body.body.some(
-    (statement: t.Statement) =>
-      t.isVariableDeclaration(statement) &&
-      statement.declarations.some(
-        (declaration: t.VariableDeclarator) =>
-          t.isIdentifier(declaration.id) &&
-          declaration.id.name === SOURCE_PROPS_REST,
-      ),
-  );
-  if (alreadyInjected) {
-    return;
-  }
-
-  node.body.body.unshift(
-    t.variableDeclaration("const", [
-      t.variableDeclarator(
-        t.objectPattern([
-          t.objectProperty(
-            t.identifier(JSX_SOURCE_PROP),
-            t.identifier(SOURCE_PROP_LOCAL),
-            false,
-            false,
-          ),
-          t.restElement(t.identifier(SOURCE_PROPS_REST)),
-        ]),
-        param,
-      ),
-    ]),
-    t.expressionStatement(
-      t.assignmentExpression(
-        "=",
-        t.identifier(param.name),
-        t.identifier(SOURCE_PROPS_REST),
-      ),
-    ),
-  );
-}
-
-function injectSourcePropIntoFunctionParams(
-  node:
-    | t.FunctionDeclaration
-    | t.FunctionExpression
-    | t.ArrowFunctionExpression,
-) {
-  const firstParam = node.params[0];
-  if (!firstParam) {
-    return;
-  }
-
-  if (t.isObjectPattern(firstParam)) {
-    injectSourcePropBinding(firstParam);
-    return;
-  }
-
-  if (t.isIdentifier(firstParam)) {
-    injectSourcePropIntoIdentifierParam(node, firstParam);
-  }
-}
-
-function injectSourcePropIntoExpression(node: t.Expression | null | undefined) {
-  if (!node) {
-    return;
-  }
-
-  if (t.isFunctionExpression(node) || t.isArrowFunctionExpression(node)) {
-    injectSourcePropIntoFunctionParams(node);
-    return;
-  }
-
-  if (!t.isCallExpression(node)) {
-    return;
-  }
-
-  const firstArg = node.arguments[0];
-  if (
-    firstArg &&
-    !t.isSpreadElement(firstArg) &&
-    (t.isFunctionExpression(firstArg) || t.isArrowFunctionExpression(firstArg))
-  ) {
-    injectSourcePropIntoFunctionParams(firstArg);
-  }
-}
-
 function getSourceValue(
   state: BabelState,
   loc: { line: number; column: number } | null | undefined,
@@ -303,9 +98,9 @@ function buildAssignment(name: string, sourceValue: string) {
   );
 }
 
-function buildIntrinsicSourceHelper() {
+function buildElementSourceHelper() {
   return t.functionDeclaration(
-    t.identifier("_markIntrinsicElementSource"),
+    t.identifier("_markReactElementSource"),
     [t.identifier("element"), t.identifier("source")],
     t.blockStatement([
       t.variableDeclaration("const", [
@@ -370,17 +165,17 @@ function buildIntrinsicSourceHelper() {
   );
 }
 
-function ensureIntrinsicSourceHelper(programPath: NodePath<t.Program>, state: BabelState) {
+function ensureElementSourceHelper(programPath: NodePath<t.Program>, state: BabelState) {
   if (state.injectedIntrinsicHelper) {
     return;
   }
 
   const alreadyExists = programPath.node.body.some(
     (node: t.Statement) =>
-      t.isFunctionDeclaration(node) && t.isIdentifier(node.id, { name: "_markIntrinsicElementSource" }),
+      t.isFunctionDeclaration(node) && t.isIdentifier(node.id, { name: "_markReactElementSource" }),
   );
   if (!alreadyExists) {
-    programPath.unshiftContainer("body", buildIntrinsicSourceHelper());
+    programPath.unshiftContainer("body", buildElementSourceHelper());
   }
 
   state.injectedIntrinsicHelper = true;
@@ -400,10 +195,6 @@ function visitDeclaration(
     const name = declarationPath.node.id?.name;
     if (!name || !isComponentName(name) || seen.has(name)) {
       return;
-    }
-
-    if (declarationPath.isFunctionDeclaration()) {
-      injectSourcePropIntoFunctionParams(declarationPath.node);
     }
 
     const sourceValue = getSourceValue(
@@ -441,8 +232,6 @@ function visitDeclaration(
       if (!isSupportedComponentInit(declarator.init)) {
         return [];
       }
-
-      injectSourcePropIntoExpression(declarator.init);
 
       const sourceValue = getSourceValue(
         state,
@@ -487,17 +276,17 @@ export function babelInjectComponentSource(
         if (
           pathNode.parentPath.isCallExpression() &&
           t.isIdentifier(pathNode.parentPath.node.callee, {
-            name: "_markIntrinsicElementSource",
+            name: "_markReactElementSource",
           })
         ) {
           return;
         }
 
-          const sourceValue = getSourceValue(
-            state,
-            pathNode.node.loc?.start,
-            projectRoot,
-          );
+        const sourceValue = getSourceValue(
+          state,
+          pathNode.node.loc?.start,
+          projectRoot,
+        );
         if (!sourceValue) {
           return;
         }
@@ -507,9 +296,9 @@ export function babelInjectComponentSource(
           return;
         }
 
-        ensureIntrinsicSourceHelper(programPath, state);
+        ensureElementSourceHelper(programPath, state);
         pathNode.replaceWith(
-          t.callExpression(t.identifier("_markIntrinsicElementSource"), [
+          t.callExpression(t.identifier("_markReactElementSource"), [
             pathNode.node,
             t.stringLiteral(sourceValue),
           ]),
@@ -522,13 +311,9 @@ export function babelInjectComponentSource(
             return;
           }
 
-          if (!isIntrinsicElementTag(pathNode.node.openingElement.name)) {
-            return;
-          }
-
           if (
             pathNode.parentPath.isCallExpression() &&
-            t.isIdentifier(pathNode.parentPath.node.callee, { name: "_markIntrinsicElementSource" })
+            t.isIdentifier(pathNode.parentPath.node.callee, { name: "_markReactElementSource" })
           ) {
             return;
           }
@@ -547,9 +332,9 @@ export function babelInjectComponentSource(
             return;
           }
 
-          ensureIntrinsicSourceHelper(programPath, state);
+          ensureElementSourceHelper(programPath, state);
 
-          const wrappedNode = t.callExpression(t.identifier("_markIntrinsicElementSource"), [
+          const wrappedNode = t.callExpression(t.identifier("_markReactElementSource"), [
             pathNode.node,
             t.stringLiteral(sourceValue),
           ]);
@@ -566,50 +351,6 @@ export function babelInjectComponentSource(
 
           pathNode.replaceWith(wrappedNode);
         },
-      },
-      JSXOpeningElement(pathNode: NodePath<t.JSXOpeningElement>, state: BabelState) {
-        if (!injectJsxSource) {
-          return;
-        }
-
-        if (!isCustomComponentTag(pathNode.node.name)) {
-          return;
-        }
-
-        const rootIdentifierName = getRootJsxIdentifierName(pathNode.node.name);
-        if (
-          rootIdentifierName &&
-          isExternalToProjectRoot(state.file?.opts?.filename, projectRoot) &&
-          isStyledModuleImport(pathNode.scope.getBinding(rootIdentifierName))
-        ) {
-          return;
-        }
-
-        const hasSourceProp = pathNode.node.attributes.some(
-          (attr: t.JSXAttribute | t.JSXSpreadAttribute) =>
-            t.isJSXAttribute(attr) &&
-            t.isJSXIdentifier(attr.name) &&
-            attr.name.name === JSX_SOURCE_PROP,
-        );
-        if (hasSourceProp) {
-          return;
-        }
-
-        const filename = state.file?.opts?.filename;
-        const loc = pathNode.node.loc?.start;
-        if (!filename || !loc) {
-          return;
-        }
-
-        pathNode.node.attributes.push(
-          t.jsxAttribute(
-            t.jsxIdentifier(JSX_SOURCE_PROP),
-            t.stringLiteral(
-              getSourceValue(state, loc, projectRoot) ??
-                `${filename.replace(/\\/g, "/")}:${loc.line}:${loc.column + 1}`,
-            ),
-          ),
-        );
       },
       Program(programPath: NodePath<t.Program>, state: BabelState) {
         if (!injectComponentSource) {

@@ -38,11 +38,6 @@ export function normalizeProjectRoot(projectRoot?: string) {
   if (projectRoot) {
     return trimTrailingSlash(normalizeSlashes(projectRoot));
   }
-
-  if (typeof process !== "undefined" && typeof process.cwd === "function") {
-    return trimTrailingSlash(normalizeSlashes(process.cwd()));
-  }
-
   return "";
 }
 

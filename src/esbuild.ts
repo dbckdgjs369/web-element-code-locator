@@ -66,12 +66,17 @@ export function esbuildSourceTransformPlugin(
 }
 
 export function createEsbuildSourceAdapter(options: SourceInjectionOptions = {}) {
+  const resolvedOptions = {
+    projectRoot: process.cwd(),
+    ...options,
+  };
+
   return defineSourceAdapter<EsbuildSourceAdapterConfig>({
     kind: "esbuild",
     name: "react-code-locator/esbuild",
-    options,
+    options: resolvedOptions,
     config: {
-      plugins: [esbuildSourceTransformPlugin(options)],
+      plugins: [esbuildSourceTransformPlugin(resolvedOptions)],
     },
   });
 }

@@ -48,15 +48,22 @@ export function viteSourceTransformPlugin(
 
 export function createViteSourceAdapter(options: ViteSourceAdapterOptions = {}) {
   const { babel = {}, ...viteOptions } = options;
+  const resolvedBabelOptions = {
+    projectRoot: process.cwd(),
+    ...babel,
+  };
   const plugins = [
-    viteSourceTransformPlugin(babel),
+    viteSourceTransformPlugin(resolvedBabelOptions),
     ...createViteClientInjector(viteOptions),
   ].filter(Boolean) as Plugin[];
 
   return defineSourceAdapter<ViteSourceAdapterConfig, ViteSourceAdapterOptions>({
     kind: "vite",
     name: "react-code-locator/vite",
-    options,
+    options: {
+      ...viteOptions,
+      babel: resolvedBabelOptions,
+    },
     config: {
       plugins,
     },
