@@ -102,6 +102,94 @@ So the long-term architecture should be:
 
 This is better than putting all logic into Babel-specific code.
 
+## The most universal interception point
+
+If the goal is "support as many React projects as possible", the most promising common interception point is not Babel itself.
+
+It is the React element factory layer:
+
+- `jsx`
+- `jsxs`
+- `jsxDEV`
+- `React.createElement`
+
+No matter which tool performs JSX transform, React code typically converges on one of these calls before elements are rendered.
+
+That means a more universal strategy is:
+
+- do not put the full implementation into each transform tool
+- intercept or wrap React element creation in a shared runtime layer
+- let each toolchain adapter only provide source location data
+
+Conceptually, that can look like this:
+
+```ts
+import { jsx as _jsx } from "react/jsx-runtime";
+import { wrapJsx } from "react-code-locator/runtime";
+
+const jsx = wrapJsx(_jsx, import.meta.url);
+```
+
+Or in development mode:
+
+```ts
+import { jsxDEV as _jsxDEV } from "react/jsx-dev-runtime";
+
+const jsxDEV = wrapJsxDev(_jsxDEV, sourceInfo);
+```
+
+The important point is that the runtime core would handle:
+
+- element wrapping
+- metadata storage
+- source lookup at runtime
+
+while the transform-specific adapter would only be responsible for:
+
+- finding the source location from the current file and AST node
+- passing that location into the runtime core
+
+## Why factory wrapping alone is not enough
+
+Even though the React element factory layer is the best common point, it usually does not know the original source location by itself.
+
+If code has already become:
+
+```js
+jsx("div", { children: "Hello" })
+```
+
+the runtime can usually see:
+
+- element type
+- props
+
+but not:
+
+- original source file
+- original line
+- original column
+
+That information usually exists earlier, when the transform tool still has access to AST node locations.
+
+So a pure runtime-only solution is usually not enough if precise `file:line:column` mapping is required.
+
+## Practical architecture direction
+
+The most realistic architecture is two-layered:
+
+1. Common runtime core
+   Handles React element wrapping, metadata storage, and runtime lookup.
+
+2. Thin transform adapters
+   Babel, SWC, esbuild, Vite, or Webpack-specific integration that only extracts and forwards source location data.
+
+This gives the best tradeoff:
+
+- common logic lives in one place
+- tool-specific code becomes smaller
+- the system stays aligned with the one thing all React projects share: React element creation
+
 ## Why MCP is interesting
 
 MCP does not replace the locator runtime.
