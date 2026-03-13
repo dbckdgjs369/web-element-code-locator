@@ -26,6 +26,16 @@
       "import": "./dist/vite.js",
       "require": "./dist/vite.cjs"
     },
+    "./esbuild": {
+      "types": "./dist/esbuild.d.ts",
+      "import": "./dist/esbuild.js",
+      "require": "./dist/esbuild.cjs"
+    },
+    "./swc": {
+      "types": "./dist/swc.d.ts",
+      "import": "./dist/swc.js",
+      "require": "./dist/swc.cjs"
+    },
     "./webpack": {
       "types": "./dist/webpack.d.cts",
       "require": "./dist/webpack.cjs"
@@ -51,6 +61,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.26.0",
+    "@types/babel__core": "^7.20.5",
     "@types/node": "^22.13.10",
     "tsup": "^8.5.1",
     "typescript": "^5.8.2",

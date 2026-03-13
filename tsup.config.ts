@@ -6,6 +6,8 @@ export default defineConfig({
     "src/index.ts",
     "src/client.ts",
     "src/vite.ts",
+    "src/esbuild.ts",
+    "src/swc.ts",
     "src/webpack.cts",
     "src/babelInjectComponentSource.ts",
     "src/webpackRuntimeEntry.ts",

@@ -2,9 +2,9 @@
 
 개발 중인 React 앱에서 요소를 `Shift + Click`하면 해당 UI와 연결된 소스 위치를 찾는 패키지입니다.
 
-- JSX 디버그 정보가 있으면 우선 사용해서 정확한 JSX 위치를 찾습니다.
-- JSX 정보가 없으면 컴포넌트 정의 위치로 fallback 합니다.
-- Vite, Webpack, Babel, 브라우저 런타임을 각각 분리해서 사용할 수 있습니다.
+- React element 생성 시 source metadata를 붙이고, 브라우저 런타임에서 Fiber를 따라 위치를 계산합니다.
+- JSX 디버그 정보가 있으면 우선 사용하고, 없으면 컴포넌트 정의 위치로 fallback 합니다.
+- Babel, Vite, esbuild, SWC 파이프라인용 어댑터와 브라우저 런타임을 분리해서 사용할 수 있습니다.
 
 ## 설치
 
@@ -20,26 +20,20 @@ npm i -D /absolute/path/to/react-code-locator
 
 ## 빠른 시작
 
-Vite 환경에서는 기존 `@vitejs/plugin-react` 설정에 Babel 플러그인을 추가하고, `react-code-locator/vite`는 클라이언트 자동 주입만 맡깁니다.
+Vite 환경에서는 `createViteSourceAdapter()`가 source transform과 클라이언트 자동 주입을 함께 제공합니다.
 
 ```ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { babelInjectComponentSource, reactComponentJump } from "react-code-locator/vite";
+import { createViteSourceAdapter } from "react-code-locator/vite";
 
 export default defineConfig(({ command }) => ({
   plugins: [
-    react({
-      babel: {
-        plugins: [babelInjectComponentSource],
-      },
-    }),
-    ...reactComponentJump({
+    react(),
+    ...createViteSourceAdapter({
       command,
-      locator: {
-        triggerKey: "shift",
-      },
-    }),
+      locator: { triggerKey: "shift" },
+    }).config.plugins,
   ],
 }));
 ```
@@ -56,30 +50,23 @@ export default defineConfig(({ command }) => ({
 
 Vite + React 프로젝트용 기본 진입점입니다.
 
-- 개발 서버에서만 브라우저 클라이언트를 자동 주입합니다.
+- source transform 플러그인과 브라우저 클라이언트 주입 플러그인을 함께 제공합니다.
 - HTML에는 bare import를 직접 넣지 않고 Vite 가상 모듈을 통해 클라이언트를 로드합니다.
 - 기본값으로 브라우저 클라이언트도 자동 주입합니다.
-- React 플러그인은 직접 만들지 않습니다. 기존 `@vitejs/plugin-react` 설정에 Babel 플러그인을 추가해서 사용해야 합니다.
 
 ```ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { babelInjectComponentSource, reactComponentJump } from "react-code-locator/vite";
+import { createViteSourceAdapter } from "react-code-locator/vite";
 
 export default defineConfig(({ command }) => ({
   plugins: [
-    react({
-      babel: {
-        plugins: [babelInjectComponentSource],
-      },
-    }),
-    ...reactComponentJump({
+    react(),
+    ...createViteSourceAdapter({
       command,
-      locator: {
-        triggerKey: "shift",
-      },
+      locator: { triggerKey: "shift" },
       injectClient: true,
-    }),
+    }).config.plugins,
   ],
 }));
 ```
@@ -91,7 +78,7 @@ export default defineConfig(({ command }) => ({
 - `locator.onLocate(result)`: 위치를 찾았을 때 커스텀 처리
 - `locator.onError(error)`: 위치를 못 찾았을 때 커스텀 처리
 - `injectClient`: `false`로 두면 브라우저 런타임 자동 주입 비활성화
-- `babelInjectComponentSource`: 기존 `@vitejs/plugin-react`의 `babel.plugins`에 추가
+- `babel`: source transform 옵션
 
 ### `react-code-locator/client`
 
@@ -116,19 +103,15 @@ dispose();
 ```ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { babelInjectComponentSource, reactComponentJump } from "react-code-locator/vite";
+import { createViteSourceAdapter } from "react-code-locator/vite";
 
 export default defineConfig(({ command }) => ({
   plugins: [
-    react({
-      babel: {
-        plugins: [babelInjectComponentSource],
-      },
-    }),
-    ...reactComponentJump({
+    react(),
+    ...createViteSourceAdapter({
       command,
       injectClient: false,
-    }),
+    }).config.plugins,
   ],
 }));
 ```
@@ -147,11 +130,11 @@ if (import.meta.env.DEV) {
 
 Babel 플러그인만 따로 사용할 때 사용합니다.
 
-이 플러그인은 기본적으로 한 가지를 주입합니다.
+이 플러그인은 기본적으로 두 가지를 주입합니다.
 
+- 커스텀 React 컴포넌트 JSX 호출부에 `$componentSourceLoc`
 - React 컴포넌트 함수/클래스에 `__componentSourceLoc`
-
-옵션으로 JSX 요소에도 `__componentSourceLoc`를 주입할 수 있지만 기본값은 `false`입니다.
+- intrinsic DOM JSX는 prop이 아니라 숨겨진 registry metadata로 추적합니다.
 
 ```js
 const { babelInjectComponentSource } = require("react-code-locator/babel");
@@ -171,13 +154,13 @@ export default {
 };
 ```
 
-JSX 주입이 꼭 필요하면:
+JSX 호출부 주입을 끄고 싶으면:
 
 ```ts
 import { babelInjectComponentSource } from "react-code-locator/babel";
 
 export default {
-  plugins: [[babelInjectComponentSource, { injectJsxSource: true }]],
+  plugins: [[babelInjectComponentSource, { injectJsxSource: false }]],
 };
 ```
 
@@ -205,6 +188,28 @@ module.exports = withReactComponentJump(config, {
 - React 앱이 Babel을 통해 트랜스파일되어야 합니다.
 - `module.rules` 안에 `babel-loader`가 있어야 자동 주입이 동작합니다.
 
+### `react-code-locator/esbuild`
+
+esbuild 파이프라인에 source transform 플러그인을 붙일 때 사용합니다.
+
+```ts
+import { createEsbuildSourceAdapter } from "react-code-locator/esbuild";
+
+const locator = createEsbuildSourceAdapter();
+const plugins = [...locator.config.plugins];
+```
+
+### `react-code-locator/swc`
+
+SWC 기반 파이프라인에서 공통 source transform을 호출할 때 사용합니다.
+
+```ts
+import { createSwcSourceAdapter } from "react-code-locator/swc";
+
+const locator = createSwcSourceAdapter();
+const transform = locator.config.transform;
+```
+
 ### `react-code-locator`
 
 런타임 유틸만 직접 사용할 때의 기본 엔트리입니다.
@@ -223,7 +228,7 @@ import { enableReactComponentJump, locateComponentSource } from "react-code-loca
 ```ts
 type LocatorResult = {
   source: string;
-  mode: "jsx" | "component";
+  mode: "direct" | "screen" | "implementation";
 };
 ```
 
@@ -231,7 +236,7 @@ type LocatorResult = {
 
 정상 동작하려면 보통 아래 두 단계가 같이 필요합니다.
 
-1. 빌드 단계에서 Babel 플러그인으로 소스 메타데이터 주입
+1. 빌드 단계에서 source transform으로 소스 메타데이터 주입
 2. 브라우저에서 클릭 이벤트를 가로채 React Fiber를 따라가며 위치 계산
 
 Vite/webpack 어댑터를 쓰면 이 둘을 한 번에 붙일 수 있습니다.
