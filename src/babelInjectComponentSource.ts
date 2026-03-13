@@ -1,15 +1,16 @@
-import path from "node:path";
 import { types as t, type NodePath, type PluginObj } from "@babel/core";
 import {
   JSX_SOURCE_PROP,
   JSX_SOURCE_REGISTRY_SYMBOL,
   SOURCE_PROP,
 } from "./constants";
+import type { SourceInjectionOptions } from "./sourceAdapter";
+import {
+  isExternalToProjectRoot,
+  toRelativeSource,
+} from "./sourceMetadata";
 
-export type BabelInjectComponentSourceOptions = {
-  injectJsxSource?: boolean;
-  injectComponentSource?: boolean;
-};
+export type BabelInjectComponentSourceOptions = SourceInjectionOptions;
 
 type BabelState = {
   file?: {
@@ -119,17 +120,6 @@ function isStyledModuleImport(binding: BindingLike | undefined) {
   );
 }
 
-function isExternalToProjectRoot(filename: string | undefined) {
-  if (!filename) {
-    return false;
-  }
-
-  const relativePath = path
-    .relative(process.cwd(), filename)
-    .replace(/\\/g, "/");
-  return relativePath.startsWith("../");
-}
-
 function isSupportedComponentInit(
   node: t.Expression | null | undefined,
 ): boolean {
@@ -162,7 +152,7 @@ function isSupportedComponentInit(
 }
 
 function hasSourcePropBinding(pattern: t.ObjectPattern) {
-  return pattern.properties.some((property) => {
+  return pattern.properties.some((property: t.ObjectPattern["properties"][number]) => {
     if (!t.isObjectProperty(property)) {
       return false;
     }
@@ -185,7 +175,7 @@ function injectSourcePropBinding(pattern: t.ObjectPattern) {
     false,
   );
 
-  const restIndex = pattern.properties.findIndex((property) =>
+  const restIndex = pattern.properties.findIndex((property: t.ObjectPattern["properties"][number]) =>
     t.isRestElement(property),
   );
   if (restIndex === -1) {
@@ -208,10 +198,10 @@ function injectSourcePropIntoIdentifierParam(
   }
 
   const alreadyInjected = node.body.body.some(
-    (statement) =>
+    (statement: t.Statement) =>
       t.isVariableDeclaration(statement) &&
       statement.declarations.some(
-        (declaration) =>
+        (declaration: t.VariableDeclarator) =>
           t.isIdentifier(declaration.id) &&
           declaration.id.name === SOURCE_PROPS_REST,
       ),
@@ -293,14 +283,14 @@ function injectSourcePropIntoExpression(node: t.Expression | null | undefined) {
 function getSourceValue(
   state: BabelState,
   loc: { line: number; column: number } | null | undefined,
+  projectRoot?: string,
 ) {
   const filename = state.file?.opts?.filename;
   if (!filename || !loc) {
     return null;
   }
 
-  const relPath = path.relative(process.cwd(), filename).replace(/\\/g, "/");
-  return `${relPath}:${loc.line}:${loc.column + 1}`;
+  return toRelativeSource(filename, loc, projectRoot);
 }
 
 function buildAssignment(name: string, sourceValue: string) {
@@ -386,7 +376,8 @@ function ensureIntrinsicSourceHelper(programPath: NodePath<t.Program>, state: Ba
   }
 
   const alreadyExists = programPath.node.body.some(
-    (node) => t.isFunctionDeclaration(node) && t.isIdentifier(node.id, { name: "_markIntrinsicElementSource" }),
+    (node: t.Statement) =>
+      t.isFunctionDeclaration(node) && t.isIdentifier(node.id, { name: "_markIntrinsicElementSource" }),
   );
   if (!alreadyExists) {
     programPath.unshiftContainer("body", buildIntrinsicSourceHelper());
@@ -400,6 +391,7 @@ function visitDeclaration(
   insertAfterPath: NodePath,
   state: BabelState,
   seen: Set<string>,
+  projectRoot?: string,
 ) {
   if (
     declarationPath.isFunctionDeclaration() ||
@@ -414,7 +406,11 @@ function visitDeclaration(
       injectSourcePropIntoFunctionParams(declarationPath.node);
     }
 
-    const sourceValue = getSourceValue(state, declarationPath.node.loc?.start);
+    const sourceValue = getSourceValue(
+      state,
+      declarationPath.node.loc?.start,
+      projectRoot,
+    );
     if (!sourceValue) {
       return;
     }
@@ -429,7 +425,7 @@ function visitDeclaration(
   }
 
   const assignments = declarationPath.node.declarations.flatMap(
-    (declarator) => {
+    (declarator: t.VariableDeclarator) => {
       if (
         !t.isIdentifier(declarator.id) ||
         !isComponentName(declarator.id.name) ||
@@ -451,6 +447,7 @@ function visitDeclaration(
       const sourceValue = getSourceValue(
         state,
         declarator.loc?.start ?? declarator.init.loc?.start,
+        projectRoot,
       );
       if (!sourceValue) {
         return [];
@@ -469,12 +466,16 @@ function visitDeclaration(
 export function babelInjectComponentSource(
   options: BabelInjectComponentSourceOptions = {},
 ): PluginObj<BabelState> {
-  const { injectJsxSource = true, injectComponentSource = true } = options;
+  const {
+    injectJsxSource = true,
+    injectComponentSource = true,
+    projectRoot,
+  } = options;
 
   return {
     name: "babel-inject-component-source",
     visitor: {
-      CallExpression(pathNode, state) {
+      CallExpression(pathNode: NodePath<t.CallExpression>, state: BabelState) {
         if (!injectJsxSource) {
           return;
         }
@@ -492,12 +493,16 @@ export function babelInjectComponentSource(
           return;
         }
 
-        const sourceValue = getSourceValue(state, pathNode.node.loc?.start);
+          const sourceValue = getSourceValue(
+            state,
+            pathNode.node.loc?.start,
+            projectRoot,
+          );
         if (!sourceValue) {
           return;
         }
 
-        const programPath = pathNode.findParent((parent) => parent.isProgram());
+        const programPath = pathNode.findParent((parent: NodePath) => parent.isProgram());
         if (!programPath || !programPath.isProgram()) {
           return;
         }
@@ -512,7 +517,7 @@ export function babelInjectComponentSource(
         pathNode.skip();
       },
       JSXElement: {
-        exit(pathNode, state) {
+        exit(pathNode: NodePath<t.JSXElement>, state: BabelState) {
           if (!injectJsxSource) {
             return;
           }
@@ -528,12 +533,16 @@ export function babelInjectComponentSource(
             return;
           }
 
-          const sourceValue = getSourceValue(state, pathNode.node.openingElement.loc?.start);
+          const sourceValue = getSourceValue(
+            state,
+            pathNode.node.openingElement.loc?.start,
+            projectRoot,
+          );
           if (!sourceValue) {
             return;
           }
 
-          const programPath = pathNode.findParent((parent) => parent.isProgram());
+          const programPath = pathNode.findParent((parent: NodePath) => parent.isProgram());
           if (!programPath || !programPath.isProgram()) {
             return;
           }
@@ -558,7 +567,7 @@ export function babelInjectComponentSource(
           pathNode.replaceWith(wrappedNode);
         },
       },
-      JSXOpeningElement(pathNode, state) {
+      JSXOpeningElement(pathNode: NodePath<t.JSXOpeningElement>, state: BabelState) {
         if (!injectJsxSource) {
           return;
         }
@@ -570,14 +579,14 @@ export function babelInjectComponentSource(
         const rootIdentifierName = getRootJsxIdentifierName(pathNode.node.name);
         if (
           rootIdentifierName &&
-          isExternalToProjectRoot(state.file?.opts?.filename) &&
+          isExternalToProjectRoot(state.file?.opts?.filename, projectRoot) &&
           isStyledModuleImport(pathNode.scope.getBinding(rootIdentifierName))
         ) {
           return;
         }
 
         const hasSourceProp = pathNode.node.attributes.some(
-          (attr) =>
+          (attr: t.JSXAttribute | t.JSXSpreadAttribute) =>
             t.isJSXAttribute(attr) &&
             t.isJSXIdentifier(attr.name) &&
             attr.name.name === JSX_SOURCE_PROP,
@@ -596,13 +605,13 @@ export function babelInjectComponentSource(
           t.jsxAttribute(
             t.jsxIdentifier(JSX_SOURCE_PROP),
             t.stringLiteral(
-              getSourceValue(state, loc) ??
+              getSourceValue(state, loc, projectRoot) ??
                 `${filename.replace(/\\/g, "/")}:${loc.line}:${loc.column + 1}`,
             ),
           ),
         );
       },
-      Program(programPath, state) {
+      Program(programPath: NodePath<t.Program>, state: BabelState) {
         if (!injectComponentSource) {
           return;
         }
@@ -616,12 +625,12 @@ export function babelInjectComponentSource(
           ) {
             const declarationPath = childPath.get("declaration");
             if (!Array.isArray(declarationPath) && declarationPath.node) {
-              visitDeclaration(declarationPath, childPath, state, seen);
+              visitDeclaration(declarationPath, childPath, state, seen, projectRoot);
             }
             continue;
           }
 
-          visitDeclaration(childPath, childPath, state, seen);
+          visitDeclaration(childPath, childPath, state, seen, projectRoot);
         }
       },
     },

@@ -1,10 +1,10 @@
 import type { Plugin, PluginOption } from "vite";
-import { type LocatorOptions } from "./runtime";
+import type { LocatorOptions } from "./runtime";
 
 const VIRTUAL_CLIENT_MODULE_ID = "virtual:react-code-locator/client";
 const RESOLVED_VIRTUAL_CLIENT_MODULE_ID = `\0${VIRTUAL_CLIENT_MODULE_ID}`;
 
-export type ElementLocatorReactOptions = {
+export type ViteClientInjectorOptions = {
   command?: "serve" | "build";
   locator?: LocatorOptions;
   injectClient?: boolean;
@@ -14,7 +14,7 @@ function createClientInjector(locatorOptions: LocatorOptions = {}): Plugin {
   const serialized = JSON.stringify(locatorOptions);
 
   return {
-    name: "element-locator-client-injector",
+    name: "react-code-locator-client-injector",
     apply: "serve",
     resolveId(id) {
       if (id === VIRTUAL_CLIENT_MODULE_ID) {
@@ -49,7 +49,9 @@ function createClientInjector(locatorOptions: LocatorOptions = {}): Plugin {
   };
 }
 
-export function elementLocatorReact(options: ElementLocatorReactOptions = {}): PluginOption[] {
+export function createViteClientInjector(
+  options: ViteClientInjectorOptions = {},
+): PluginOption[] {
   const { command = "serve", locator = {}, injectClient = true } = options;
   const isServe = command === "serve";
 

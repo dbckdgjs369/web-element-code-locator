@@ -3,6 +3,7 @@ import {
   JSX_SOURCE_REGISTRY_SYMBOL,
   SOURCE_PROP,
 } from "./constants";
+import { getSourceFile, isProjectLocalSource } from "./sourceMetadata";
 
 export type TriggerKey = "alt" | "meta" | "ctrl" | "shift" | "none";
 export type LocatorMode = "direct" | "screen" | "implementation";
@@ -143,24 +144,6 @@ function getDirectDebugSource(fiber: ReactFiber | null) {
   return null;
 }
 
-function getSourceFile(source: string | null) {
-  if (!source) {
-    return null;
-  }
-
-  const match = source.match(/^(.*):\d+:\d+$/);
-  return match?.[1] ?? null;
-}
-
-function isProjectLocalSource(source: string) {
-  const file = getSourceFile(source);
-  if (!file) {
-    return false;
-  }
-
-  return !file.startsWith("../") && !file.startsWith("..\\");
-}
-
 type SourceCandidate = {
   source: string;
   file: string;
@@ -230,16 +213,16 @@ function resolveSourceCandidates(fiber: ReactFiber | null): ResolvedCandidates {
   };
 }
 
-function getModeLabel(mode: LocatorMode) {
+function getModeDescription(mode: LocatorMode) {
   if (mode === "direct") {
-    return "1 direct";
+    return "Direct JSX";
   }
 
   if (mode === "screen") {
-    return "2 screen";
+    return "Screen source";
   }
 
-  return "3 implementation";
+  return "Implementation source";
 }
 
 function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
@@ -248,7 +231,6 @@ function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
   }
 
   const element = document.createElement("div");
-  let currentText = "";
   let copyValue: string | null = null;
   let currentMode: LocatorMode = "screen";
   let hideTimer: ReturnType<typeof setTimeout> | null = null;
@@ -275,8 +257,7 @@ function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
   });
 
   const show = (message: string, tone: "idle" | "success" | "error") => {
-    currentText = message;
-    element.textContent = `[${getModeLabel(currentMode)}] ${message}`;
+    element.textContent = message;
     element.style.background =
       tone === "success"
         ? "rgba(6, 95, 70, 0.92)"
@@ -293,7 +274,7 @@ function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
     hideTimer = setTimeout(() => {
       element.style.opacity = "0";
       element.style.pointerEvents = "none";
-    }, 1500);
+    }, 2000);
   };
 
   element.addEventListener("click", async () => {
@@ -309,7 +290,7 @@ function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
     }
   });
 
-  show(`[react-code-locator] enabled (${triggerKey}+click, alt+1/2/3 mode)`, "idle");
+  show(`[react-code-locator] enabled (${triggerKey}+click, alt+1/2/3 to switch mode)`, "idle");
 
   const mount = () => {
     if (!element.isConnected && document.body) {
@@ -332,7 +313,7 @@ function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
     },
     setMode(mode) {
       currentMode = mode;
-      show(`[react-code-locator] mode ${getModeLabel(mode)}`, "idle");
+      show(`[react-code-locator] ${getModeDescription(mode)}`, "idle");
     },
     remove() {
       if (hideTimer) {
@@ -396,21 +377,21 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
       return;
     }
 
-    if (event.key === "1") {
+    if (event.code === "Digit1") {
       currentMode = "direct";
       overlay?.setMode(currentMode);
       event.preventDefault();
       return;
     }
 
-    if (event.key === "2") {
+    if (event.code === "Digit2") {
       currentMode = "screen";
       overlay?.setMode(currentMode);
       event.preventDefault();
       return;
     }
 
-    if (event.key === "3") {
+    if (event.code === "Digit3") {
       currentMode = "implementation";
       overlay?.setMode(currentMode);
       event.preventDefault();

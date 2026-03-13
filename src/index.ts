@@ -1,2 +1,12 @@
 export { enableReactComponentJump, locateComponentSource } from "./runtime";
 export type { LocatorMode, LocatorOptions, LocatorResult, TriggerKey } from "./runtime";
+export { defineSourceAdapter } from "./sourceAdapter";
+export type { SourceAdapterDescriptor, SourceAdapterKind, SourceInjectionOptions } from "./sourceAdapter";
+export { babelInjectComponentSource, createBabelSourceAdapter, babelSourceAdapter } from "./babel";
+export type { BabelInjectComponentSourceOptions, BabelSourceAdapterConfig } from "./babel";
+export { createViteClientInjector, reactComponentJump, createViteSourceAdapter, viteSourceAdapter } from "./vite";
+export type { ViteClientInjectorOptions, ViteSourceAdapterConfig, ViteSourceAdapterOptions } from "./vite";
+export { createEsbuildSourceAdapter, esbuildSourceAdapter } from "./esbuild";
+export type { EsbuildSourceAdapterConfig } from "./esbuild";
+export { createSwcSourceAdapter, swcSourceAdapter } from "./swc";
+export type { SwcSourceAdapterConfig } from "./swc";
