@@ -1,6 +1,10 @@
+/**
+ * esbuild Plugin for react-code-locator
+ * Uses acorn-based transform (zero-dependency)
+ */
+
 import { readFile } from "node:fs/promises";
-import { defineSourceAdapter, type SourceInjectionOptions } from "./sourceAdapter";
-import { transformSourceWithLocator } from "./sourceTransform";
+import { transformSource, type TransformOptions } from "./core/transform";
 
 type EsbuildOnLoadResult = {
   contents: string;
@@ -19,29 +23,38 @@ export type EsbuildPlugin = {
   setup: (build: EsbuildPluginBuild) => void;
 };
 
-export type EsbuildSourceAdapterConfig = {
+export interface EsbuildSourceAdapterConfig {
   plugins: EsbuildPlugin[];
-};
+}
 
 function getEsbuildLoader(filename: string): EsbuildOnLoadResult["loader"] {
   if (filename.endsWith(".tsx")) {
     return "tsx";
   }
-
   if (filename.endsWith(".ts")) {
     return "ts";
   }
-
   if (filename.endsWith(".jsx")) {
     return "jsx";
   }
-
   return "js";
 }
 
+export interface EsbuildSourceAdapterOptions extends Omit<TransformOptions, 'filename'> {
+  projectRoot?: string;
+  injectComponentSource?: boolean;
+  injectJsxSource?: boolean;
+}
+
 export function esbuildSourceTransformPlugin(
-  options: SourceInjectionOptions = {},
+  options: EsbuildSourceAdapterOptions = {},
 ): EsbuildPlugin {
+  const {
+    projectRoot = process.cwd(),
+    injectComponentSource = true,
+    injectJsxSource = true,
+  } = options;
+
   return {
     name: "react-code-locator-source-transform",
     setup(build) {
@@ -51,13 +64,15 @@ export function esbuildSourceTransformPlugin(
         }
 
         const code = await readFile(path, "utf8");
-        const result = await transformSourceWithLocator(code, {
+        const result = transformSource(code, {
           filename: path,
-          ...options,
+          projectRoot,
+          injectComponentSource,
+          injectJsxSource,
         });
 
         return {
-          contents: result.code,
+          contents: result ? result.code : code,
           loader: getEsbuildLoader(path),
         };
       });
@@ -65,20 +80,22 @@ export function esbuildSourceTransformPlugin(
   };
 }
 
-export function createEsbuildSourceAdapter(options: SourceInjectionOptions = {}) {
+export function createEsbuildSourceAdapter(options: EsbuildSourceAdapterOptions = {}) {
   const resolvedOptions = {
     projectRoot: process.cwd(),
+    injectComponentSource: true,
+    injectJsxSource: true,
     ...options,
   };
 
-  return defineSourceAdapter<EsbuildSourceAdapterConfig>({
-    kind: "esbuild",
+  return {
+    kind: "esbuild" as const,
     name: "react-code-locator/esbuild",
     options: resolvedOptions,
     config: {
       plugins: [esbuildSourceTransformPlugin(resolvedOptions)],
     },
-  });
+  };
 }
 
 export const esbuildSourceAdapter = createEsbuildSourceAdapter();

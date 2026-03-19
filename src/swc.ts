@@ -1,33 +1,42 @@
-import { defineSourceAdapter, type SourceInjectionOptions } from "./sourceAdapter";
-import { transformSourceWithLocator } from "./sourceTransform";
+/**
+ * SWC Integration for react-code-locator
+ * Uses acorn-based transform (zero-dependency)
+ */
 
-export type SwcSourceTransformOptions = SourceInjectionOptions & {
-  filename: string;
+import { transformSource, type TransformOptions } from "./core/transform";
+
+export interface SwcSourceTransformOptions extends Omit<TransformOptions, 'filename'> {
   sourceMaps?: boolean;
-};
+}
 
 export type SwcSourceTransform = (
   code: string,
-  options: SwcSourceTransformOptions,
+  options: SwcSourceTransformOptions & { filename: string },
 ) => Promise<{
   code: string;
   map: unknown;
 }>;
 
-export type SwcSourceAdapterConfig = {
+export interface SwcSourceAdapterConfig {
   transform: SwcSourceTransform;
-};
+}
 
 export async function transformSourceWithSwcLocator(
   code: string,
-  options: SwcSourceTransformOptions,
+  options: SwcSourceTransformOptions & { filename: string },
 ) {
-  return transformSourceWithLocator(code, options);
+  const result = transformSource(code, options);
+  return {
+    code: result ? result.code : code,
+    map: result?.map ?? null,
+  };
 }
 
-export function createSwcSourceAdapter(options: SourceInjectionOptions = {}) {
+export function createSwcSourceAdapter(options: SwcSourceTransformOptions = {}) {
   const resolvedOptions = {
     projectRoot: process.cwd(),
+    injectComponentSource: true,
+    injectJsxSource: true,
     ...options,
   };
 
@@ -37,14 +46,14 @@ export function createSwcSourceAdapter(options: SourceInjectionOptions = {}) {
       ...transformOptions,
     });
 
-  return defineSourceAdapter<SwcSourceAdapterConfig>({
-    kind: "swc",
+  return {
+    kind: "swc" as const,
     name: "react-code-locator/swc",
     options: resolvedOptions,
     config: {
       transform,
     },
-  });
+  };
 }
 
 export const swcSourceAdapter = createSwcSourceAdapter();

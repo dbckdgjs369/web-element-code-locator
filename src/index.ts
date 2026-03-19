@@ -1,2 +1,16 @@
+// Runtime exports
 export { enableReactComponentJump, locateComponentSource } from "./runtime";
 export type { LocatorMode, LocatorOptions, LocatorResult, TriggerKey } from "./runtime";
+
+// Plugin exports from unplugin
+export { unplugin as default } from "./unplugin";
+export {
+  vitePlugin,
+  webpackPlugin,
+  rollupPlugin,
+  esbuildPlugin,
+  rspackPlugin,
+} from "./unplugin";
+
+// Re-export types
+export type { ReactCodeLocatorOptions } from "./unplugin";
