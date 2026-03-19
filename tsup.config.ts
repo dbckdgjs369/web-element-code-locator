@@ -11,6 +11,7 @@ export default defineConfig({
     "src/webpack.cts",
     "src/babelInjectComponentSource.ts",
     "src/webpackRuntimeEntry.ts",
+    "src/unplugin.ts",
   ],
   format: ["esm", "cjs"],
   dts: true,

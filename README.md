@@ -210,6 +210,60 @@ const locator = createSwcSourceAdapter();
 const transform = locator.config.transform;
 ```
 
+### `react-code-locator/unplugin` ⭐ New
+
+**unplugin** 기반 통합 어댑터입니다. Vite, Webpack, Rollup, esbuild, Rspack 모두 지원하며, **Babel 없이** acorn 기반으로 동작합니다.
+
+```ts
+// vite.config.ts
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { vitePlugin as reactCodeLocator } from "react-code-locator/unplugin";
+
+export default defineConfig({
+  plugins: [
+    react(),
+    reactCodeLocator(),
+  ],
+});
+```
+
+```js
+// webpack.config.js
+const { webpackPlugin } = require("react-code-locator/unplugin");
+
+module.exports = {
+  plugins: [reactCodeLocator()],
+};
+```
+
+```js
+// rollup.config.js
+import { rollupPlugin } from "react-code-locator/unplugin";
+
+export default {
+  plugins: [reactCodeLocator()],
+};
+```
+
+옵션:
+
+```ts
+reactCodeLocator({
+  projectRoot: process.cwd(),    // 프로젝트 루트 경로
+  injectComponentSource: true,   // 컴포넌트 정의에 소스 주입
+  injectJsxSource: true,         // JSX 호출부에 소스 주입
+  include: /\.[jt]sx$/,          // 포함할 파일 패턴
+  exclude: /node_modules/,       // 제외할 파일 패턴
+});
+```
+
+**주의:** unplugin 어댑터를 사용하려면 `acorn`, `astring`, `estree-walker`, `unplugin`을 설치해야 합니다.
+
+```bash
+npm install -D acorn astring estree-walker unplugin
+```
+
 ### `react-code-locator`
 
 런타임 유틸만 직접 사용할 때의 기본 엔트리입니다.

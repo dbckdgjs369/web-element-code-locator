@@ -39,6 +39,11 @@
     "./webpack": {
       "types": "./dist/webpack.d.cts",
       "require": "./dist/webpack.cjs"
+    },
+    "./unplugin": {
+      "types": "./dist/unplugin.d.ts",
+      "import": "./dist/unplugin.js",
+      "require": "./dist/unplugin.cjs"
     }
   },
   "files": [
@@ -52,16 +57,33 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@babel/core": ">=7"
+    "@babel/core": ">=7",
+    "acorn": "^8.16.0",
+    "astring": "^1.9.0",
+    "estree-walker": "^3.0.3",
+    "unplugin": "^3.0.0"
   },
   "peerDependenciesMeta": {
     "@babel/core": {
+      "optional": true
+    },
+    "acorn": {
+      "optional": true
+    },
+    "astring": {
+      "optional": true
+    },
+    "estree-walker": {
+      "optional": true
+    },
+    "unplugin": {
       "optional": true
     }
   },
   "devDependencies": {
     "@babel/core": "^7.26.0",
     "@types/babel__core": "^7.20.5",
+    "@types/estree": "^1.0.8",
     "@types/node": "^22.13.10",
     "tsup": "^8.5.1",
     "typescript": "^5.8.2",
