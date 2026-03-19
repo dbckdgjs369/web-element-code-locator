@@ -33,6 +33,8 @@ export type LocatorOptions = {
   onError?: (error: unknown) => void;
 };
 
+let activeLocatorMode: LocatorMode = "screen";
+
 type StatusOverlay = {
   setStatus: (message: string, tone?: "idle" | "success" | "error") => void;
   setCopyValue: (value: string | null) => void;
@@ -225,6 +227,14 @@ function getModeDescription(mode: LocatorMode) {
   return "Implementation source";
 }
 
+export function getActiveLocatorMode() {
+  return activeLocatorMode;
+}
+
+export function setActiveLocatorMode(mode: LocatorMode) {
+  activeLocatorMode = mode;
+}
+
 function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
   if (typeof document === "undefined") {
     return null;
@@ -354,7 +364,6 @@ export function locateComponentSource(target: EventTarget | null, mode: LocatorM
 
 export function enableReactComponentJump(options: LocatorOptions = {}) {
   const overlay = createStatusOverlay(options.triggerKey ?? "shift");
-  let currentMode: LocatorMode = "screen";
   const {
     triggerKey = "shift",
     onLocate = (result) => {
@@ -378,22 +387,22 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
     }
 
     if (event.code === "Digit1") {
-      currentMode = "direct";
-      overlay?.setMode(currentMode);
+      setActiveLocatorMode("direct");
+      overlay?.setMode(getActiveLocatorMode());
       event.preventDefault();
       return;
     }
 
     if (event.code === "Digit2") {
-      currentMode = "screen";
-      overlay?.setMode(currentMode);
+      setActiveLocatorMode("screen");
+      overlay?.setMode(getActiveLocatorMode());
       event.preventDefault();
       return;
     }
 
     if (event.code === "Digit3") {
-      currentMode = "implementation";
-      overlay?.setMode(currentMode);
+      setActiveLocatorMode("implementation");
+      overlay?.setMode(getActiveLocatorMode());
       event.preventDefault();
     }
   };
@@ -412,7 +421,7 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
       return;
     }
 
-    const result = locateComponentSource(event.target, currentMode);
+    const result = locateComponentSource(event.target, getActiveLocatorMode());
     if (!result) {
       onError(new Error("No React component source metadata found for clicked element."));
       return;

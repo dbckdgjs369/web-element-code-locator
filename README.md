@@ -98,6 +98,30 @@ const dispose = enableReactComponentJump({
 dispose();
 ```
 
+`react-code-locator/client`를 import하면 브라우저 전역에 `__REACT_CODE_LOCATOR_MCP__` bridge도 같이 설치됩니다.
+이 bridge는 MCP 서버나 브라우저 자동화가 페이지 안에서 source resolve를 호출할 때 사용합니다.
+
+### `react-code-locator/mcp`
+
+Node에서 실행하는 MCP 서버 엔트리입니다.
+
+```ts
+import {
+  createDisconnectedLocatorBrowserBridge,
+  createLocatorMcpServer,
+} from "react-code-locator/mcp";
+
+const server = createLocatorMcpServer({
+  bridge: createDisconnectedLocatorBrowserBridge(),
+});
+```
+
+CLI도 제공합니다.
+
+```bash
+npx react-code-locator-mcp
+```
+
 자동 주입을 끄고 직접 붙이는 예시:
 
 ```ts

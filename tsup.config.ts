@@ -5,6 +5,8 @@ export default defineConfig({
     "src/babel.ts",
     "src/index.ts",
     "src/client.ts",
+    "src/mcp.ts",
+    "src/mcpCli.ts",
     "src/vite.ts",
     "src/esbuild.ts",
     "src/swc.ts",
