@@ -99,17 +99,11 @@ export function transformSource(
       const parent = parentStack[parentStack.length - 1] ?? null;
       const grandparent = parentStack[parentStack.length - 2] ?? null;
 
-      // Inject $componentSourceLoc as JSX attribute on component elements
+      // Inject $componentSourceLoc as JSX attribute on all JSX elements
       if (injectJsxSource && isJsx && node.type === "JSXElement") {
         const opening = node.openingElement;
         const name = opening.name;
-        let isComponent = false;
-        if (name.type === "JSXIdentifier") {
-          isComponent = isComponentName(name.name);
-        } else if (name.type === "JSXMemberExpression") {
-          isComponent = true;
-        }
-        if (isComponent && node.loc && name.end !== undefined) {
+        if (node.loc && name.end !== undefined) {
           const alreadyHasAttr = opening.attributes.some(
             (attr: any) => attr.type === "JSXAttribute" && attr.name?.name === JSX_SOURCE_PROP,
           );
