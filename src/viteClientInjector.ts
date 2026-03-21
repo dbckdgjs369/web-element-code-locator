@@ -8,10 +8,11 @@ export type ViteClientInjectorOptions = {
   command?: "serve" | "build";
   locator?: LocatorOptions;
   injectClient?: boolean;
+  projectRoot?: string;
 };
 
-function createClientInjector(locatorOptions: LocatorOptions = {}): Plugin {
-  const serialized = JSON.stringify(locatorOptions);
+function createClientInjector(locatorOptions: LocatorOptions = {}, projectRoot?: string): Plugin {
+  const serialized = JSON.stringify({ ...locatorOptions, projectRoot });
 
   return {
     name: "react-code-locator-client-injector",
@@ -52,8 +53,8 @@ function createClientInjector(locatorOptions: LocatorOptions = {}): Plugin {
 export function createViteClientInjector(
   options: ViteClientInjectorOptions = {},
 ): PluginOption[] {
-  const { command = "serve", locator = {}, injectClient = true } = options;
+  const { command = "serve", locator = {}, injectClient = true, projectRoot } = options;
   const isServe = command === "serve";
 
-  return [isServe && injectClient ? createClientInjector(locator) : null].filter(Boolean);
+  return [isServe && injectClient ? createClientInjector(locator, projectRoot) : null].filter(Boolean);
 }

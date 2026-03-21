@@ -127,7 +127,7 @@ export function vitePlugin(options?: ReactCodeLocatorOptions): Plugin[] {
 
   return [
     transformPlugin,
-    ...createViteClientInjector({ injectClient, locator }),
+    ...createViteClientInjector({ injectClient, locator, projectRoot }),
   ].filter(Boolean) as Plugin[];
 }
 

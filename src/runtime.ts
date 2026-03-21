@@ -31,6 +31,7 @@ export type LocatorOptions = {
   triggerKey?: TriggerKey;
   onLocate?: (result: LocatorResult) => void;
   onError?: (error: unknown) => void;
+  projectRoot?: string;
 };
 
 type StatusOverlay = {
@@ -144,6 +145,19 @@ function getDirectDebugSource(fiber: ReactFiber | null) {
   return null;
 }
 
+function normalizeSource(source: string, projectRoot: string | undefined): string {
+  if (!projectRoot || !source) return source;
+  const match = source.match(/^(.*):(\d+):(\d+)$/);
+  if (!match) return source;
+  const [, file, line, col] = match;
+  const normalizedFile = file.replace(/\\/g, "/");
+  const normalizedRoot = projectRoot.replace(/\\/g, "/").replace(/\/$/, "");
+  if (normalizedFile.startsWith(normalizedRoot + "/")) {
+    return `${normalizedFile.slice(normalizedRoot.length + 1)}:${line}:${col}`;
+  }
+  return source;
+}
+
 type SourceCandidate = {
   source: string;
   file: string;
@@ -155,14 +169,15 @@ type ResolvedCandidates = {
   implementation: string | null;
 };
 
-function resolveSourceCandidates(fiber: ReactFiber | null): ResolvedCandidates {
+function resolveSourceCandidates(fiber: ReactFiber | null, projectRoot?: string): ResolvedCandidates {
   let current = fiber;
   const jsxCandidates: SourceCandidate[] = [];
   const componentCandidates: SourceCandidate[] = [];
 
   while (current) {
-    const jsxSource =
+    const rawJsxSource =
       getSourceFromProps(current.pendingProps) ?? getSourceFromProps(current.memoizedProps) ?? getDirectDebugSource(current);
+    const jsxSource = normalizeSource(rawJsxSource ?? "", projectRoot) || rawJsxSource;
     if (jsxSource) {
       const file = getSourceFile(jsxSource);
       if (file && !jsxCandidates.some((candidate) => candidate.source === jsxSource)) {
@@ -170,7 +185,8 @@ function resolveSourceCandidates(fiber: ReactFiber | null): ResolvedCandidates {
       }
     }
 
-    const componentSource = getSourceFromType(current.type) ?? getSourceFromType(current.elementType);
+    const rawComponentSource = getSourceFromType(current.type) ?? getSourceFromType(current.elementType);
+    const componentSource = normalizeSource(rawComponentSource ?? "", projectRoot) || rawComponentSource;
     if (componentSource) {
       const file = getSourceFile(componentSource);
       if (file && !componentCandidates.some((candidate) => candidate.source === componentSource)) {
@@ -324,7 +340,7 @@ function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
   };
 }
 
-export function locateComponentSource(target: EventTarget | null, mode: LocatorMode = "screen"): LocatorResult | null {
+export function locateComponentSource(target: EventTarget | null, mode: LocatorMode = "screen", projectRoot?: string): LocatorResult | null {
   const elementTarget =
     target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
   const fiber = getClosestReactFiber(elementTarget);
@@ -332,7 +348,7 @@ export function locateComponentSource(target: EventTarget | null, mode: LocatorM
     return null;
   }
 
-  const candidates = resolveSourceCandidates(fiber);
+  const candidates = resolveSourceCandidates(fiber, projectRoot);
   const source = candidates[mode] ?? candidates.screen ?? candidates.direct ?? candidates.implementation;
   if (source) {
     return {
@@ -358,6 +374,7 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
   let currentMode: LocatorMode = "screen";
   const {
     triggerKey = "shift",
+    projectRoot,
     onLocate = (result) => {
       console.log(`[react-code-locator] ${result.source}`);
       overlay?.setCopyValue(result.source);
@@ -413,7 +430,7 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
       return;
     }
 
-    const result = locateComponentSource(event.target, currentMode);
+    const result = locateComponentSource(event.target, currentMode, projectRoot);
     if (!result) {
       onError(new Error("No React component source metadata found for clicked element."));
       return;
