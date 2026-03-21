@@ -233,6 +233,7 @@ export function transformSource(
         const loc = node.loc;
         if (loc) {
           this.replace(wrapWithMarkElement(node, toRelativeSource(filename, loc.start, projectRoot)));
+          this.skip();
           needsHelper = true;
           modified = true;
         }
