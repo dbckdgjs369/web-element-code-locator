@@ -11,15 +11,13 @@ import { walk } from "estree-walker";
 import type {
   Node,
   Program,
-  FunctionDeclaration,
-  VariableDeclarator,
   CallExpression,
   MemberExpression,
   Identifier,
   ExpressionStatement,
   AssignmentExpression,
 } from "estree";
-import { SOURCE_PROP, JSX_SOURCE_REGISTRY_SYMBOL } from "../constants";
+import { SOURCE_PROP, JSX_SOURCE_PROP } from "../constants";
 
 // .tsx/.jsx: TypeScript plugin must come before JSX plugin
 const ParserTSX = acorn.Parser.extend(acornTs() as any, acornJsx());
@@ -120,22 +118,12 @@ function isComponentName(name: string): boolean {
   return /^[A-Z]/.test(name);
 }
 
-function isReactElementFactoryCall(node: CallExpression): boolean {
-  const callee = node.callee;
-  if (callee.type === "Identifier") {
-    return ["jsx", "jsxs", "jsxDEV", "_jsx", "_jsxs", "_jsxDEV", "createElement"].includes(
-      (callee as Identifier).name,
-    );
-  }
-  if (callee.type === "MemberExpression") {
-    const obj = (callee as MemberExpression).object;
-    const prop = (callee as MemberExpression).property;
-    if (
-      obj.type === "Identifier" && (obj as Identifier).name === "React" &&
-      prop.type === "Identifier" && (prop as Identifier).name === "createElement"
-    ) return true;
-  }
-  return false;
+function createJsxSourceAttribute(sourceValue: string): any {
+  return {
+    type: "JSXAttribute",
+    name: { type: "JSXIdentifier", name: JSX_SOURCE_PROP },
+    value: { type: "Literal", value: sourceValue },
+  };
 }
 
 function isSupportedComponentInit(node: Node | null): boolean {
@@ -173,32 +161,6 @@ function createSourceAssignment(name: string, sourceValue: string): ExpressionSt
   };
 }
 
-function createMarkElementHelper(): FunctionDeclaration {
-  const code = `
-function _markReactElementSource(element, source) {
-  const registryKey = Symbol.for("${JSX_SOURCE_REGISTRY_SYMBOL}");
-  let registry = globalThis[registryKey];
-  if (!(registry instanceof WeakMap)) {
-    registry = globalThis[registryKey] = new WeakMap();
-  }
-  if (element && typeof element === "object" && typeof element.props === "object") {
-    registry.set(element.props, source);
-  }
-  return element;
-}
-`;
-  return ParserTS.parse(code, { ecmaVersion: "latest", sourceType: "module" })
-    .body[0] as unknown as FunctionDeclaration;
-}
-
-function wrapWithMarkElement(node: Node, sourceValue: string): CallExpression {
-  return {
-    type: "CallExpression",
-    callee: { type: "Identifier", name: "_markReactElementSource" },
-    arguments: [node as any, { type: "Literal", value: sourceValue }],
-    optional: false,
-  };
-}
 
 export function transformSource(
   code: string,
@@ -223,20 +185,28 @@ export function transformSource(
   }
 
   let modified = false;
-  let needsHelper = false;
   const seenComponents = new Set<string>();
-  const wrappedNodes = new WeakSet();
   const assignments: Array<{ node: Node; parent: Node | null; assignment: ExpressionStatement }> = [];
 
   walk(ast as any, {
     enter(node: any, parent: any) {
-      if (injectJsxSource && node.type === "CallExpression" && isReactElementFactoryCall(node) && !wrappedNodes.has(node)) {
-        const loc = node.loc;
-        if (loc) {
-          wrappedNodes.add(node);
-          this.replace(wrapWithMarkElement(node, toRelativeSource(filename, loc.start, projectRoot)));
-          needsHelper = true;
-          modified = true;
+      if (injectJsxSource && node.type === "JSXElement") {
+        const opening = node.openingElement;
+        const name = opening.name;
+        let isComponent = false;
+        if (name.type === "JSXIdentifier") {
+          isComponent = isComponentName(name.name);
+        } else if (name.type === "JSXMemberExpression") {
+          isComponent = true;
+        }
+        if (isComponent && node.loc) {
+          const alreadyHasAttr = opening.attributes.some(
+            (attr: any) => attr.type === "JSXAttribute" && attr.name?.name === JSX_SOURCE_PROP,
+          );
+          if (!alreadyHasAttr) {
+            opening.attributes.push(createJsxSourceAttribute(toRelativeSource(filename, node.loc.start, projectRoot)));
+            modified = true;
+          }
         }
       }
 
@@ -267,14 +237,6 @@ export function transformSource(
   });
 
   if (!modified) return null;
-
-  if (needsHelper) {
-    const helper = createMarkElementHelper();
-    const exists = ast.body.some(
-      (n) => n.type === "FunctionDeclaration" && (n as FunctionDeclaration).id?.name === "_markReactElementSource",
-    );
-    if (!exists) ast.body.unshift(helper);
-  }
 
   for (const { node, parent, assignment } of assignments.reverse()) {
     if (parent?.type === "Program") {

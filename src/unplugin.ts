@@ -82,6 +82,7 @@ const _unplugin: UnpluginInstance<ReactCodeLocatorOptions | undefined, false> =
 
     return {
       name: "react-code-locator",
+      enforce: "pre",
 
       transform(code, id) {
         if (process.env.NODE_ENV !== "development") return null;
