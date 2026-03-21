@@ -197,6 +197,12 @@ function resolveSourceCandidates(fiber: ReactFiber | null, projectRoot?: string)
     current = current.return ?? null;
   }
 
+  console.log("[react-code-locator] DEBUG candidates", {
+    jsxCandidates,
+    componentCandidates,
+    projectRoot,
+  });
+
   const direct = jsxCandidates[0]?.source ?? null;
   const nearestProjectLocalComponentFile = componentCandidates.find((candidate) => isProjectLocalSource(candidate.source))?.file;
   let screen: string | null = null;
