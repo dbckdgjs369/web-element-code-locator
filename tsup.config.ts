@@ -18,5 +18,5 @@ export default defineConfig({
   minify: true,
   // Bundle acorn and astring so users don't need to install them
   // All bundled — pure JS, no native bindings
-  noExternal: ["acorn", "acorn-jsx", "acorn-typescript", "astring", "estree-walker"],
+  noExternal: ["acorn", "acorn-jsx", "acorn-typescript", "astring", "estree-walker", "unplugin"],
 });
