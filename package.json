@@ -29,12 +29,18 @@
     "build": "npm run build:lib",
     "build:lib": "tsup",
     "deploy": "npm run build:lib && npm pack --dry-run --cache .npm-cache && npm publish --access public --cache .npm-cache --otp=$npm_config_otp",
+    "release:patch": "npm version patch && npm run build:lib && npm publish --access public --otp=$npm_config_otp",
+    "release:minor": "npm version minor && npm run build:lib && npm publish --access public --otp=$npm_config_otp",
+    "release:major": "npm version major && npm run build:lib && npm publish --access public --otp=$npm_config_otp",
     "prepublishOnly": "npm run build:lib",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "acorn": "^8.16.0",
-    "astring": "^1.9.0"
+    "acorn-jsx": "^5.3.2",
+    "acorn-typescript": "^1.4.13",
+    "astring": "^1.9.0",
+    "estree-walker": "^3.0.3"
   },
   "peerDependencies": {
     "unplugin": "^3.0.0"

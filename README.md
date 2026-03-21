@@ -2,21 +2,33 @@
 
 개발 중인 React 앱에서 요소를 `Shift + Click`하면 해당 UI와 연결된 소스 위치를 찾는 패키지입니다.
 
-- React element 생성 시 source metadata를 붙이고, 브라우저 런타임에서 Fiber를 따라 위치를 계산합니다.
-- **Zero Dependency**: Babel 없이 acorn 기반으로 동작합니다.
-- **Universal**: 하나의 패키지로 Vite, Webpack, Rollup, esbuild 모두 지원합니다.
+- React element 생성 시 source metadata를 주입하고, 브라우저 런타임에서 Fiber를 따라 위치를 계산합니다.
+- **완전 번들링**: acorn 기반 순수 JS 파서를 내장 — 별도 파서 설치 불필요
+- **Universal**: Vite, Webpack, Rollup, esbuild, Rspack 모두 지원
+- **개발 전용**: 프로덕션 빌드에 영향 없음
 
 ## 설치
 
 ```bash
-npm i -D react-code-locator unplugin
+npm i -D react-code-locator
 ```
+
+> Vite / Rollup / esbuild / Rspack 플러그인을 사용하려면 `unplugin`도 필요합니다.
+>
+> ```bash
+> npm i -D unplugin
+> ```
+>
+> Webpack은 unplugin 없이 동작합니다.
 
 ## 빠른 시작
 
 ### Vite
 
+`vitePlugin`은 소스 transform + 클라이언트 런타임 자동 주입을 모두 처리합니다.
+
 ```ts
+// vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { vitePlugin } from "react-code-locator";
@@ -29,51 +41,88 @@ export default defineConfig({
 });
 ```
 
-### Webpack (CRA 등)
+### Next.js (Webpack)
 
 ```js
-// config-overrides.js
-const { webpackPlugin } = require('react-code-locator');
+// next.config.js
+const { webpackPlugin } = require("react-code-locator/webpack");
 
 module.exports = {
-  webpack: function(config, env) {
-    if (env === 'development') {
+  webpack(config, { dev }) {
+    if (dev) {
       config.plugins.push(webpackPlugin());
     }
     return config;
-  }
+  },
+};
+```
+
+### Create React App
+
+```js
+// config-overrides.js
+const { webpackPlugin } = require("react-code-locator/webpack");
+
+module.exports = {
+  webpack(config, env) {
+    if (env === "development") {
+      config.plugins.push(webpackPlugin());
+    }
+    return config;
+  },
 };
 ```
 
 ### Rollup
 
 ```js
-import { rollupPlugin } from 'react-code-locator';
+// rollup.config.js
+import { rollupPlugin } from "react-code-locator";
 
 export default {
-  plugins: [rollupPlugin()]
+  plugins: [rollupPlugin()],
 };
 ```
 
 ### esbuild
 
 ```js
-import { esbuildPlugin } from 'react-code-locator';
+import { esbuildPlugin } from "react-code-locator";
 
-const result = await esbuild.build({
-  plugins: [esbuildPlugin()]
+await esbuild.build({
+  plugins: [esbuildPlugin()],
 });
+```
+
+### Rspack
+
+```js
+// rspack.config.js
+const { rspackPlugin } = require("react-code-locator");
+
+module.exports = {
+  plugins: [rspackPlugin()],
+};
 ```
 
 ## 옵션
 
+모든 플러그인이 동일한 옵션을 공유합니다.
+
 ```ts
 vitePlugin({
-  projectRoot: process.cwd(),    // 프로젝트 루트 경로
+  // 소스 transform 옵션
+  projectRoot: process.cwd(),    // 프로젝트 루트 (상대 경로 기준)
   injectComponentSource: true,   // 컴포넌트 정의에 소스 주입
   injectJsxSource: true,         // JSX 호출부에 소스 주입
   include: /\.[jt]sx$/,          // 포함할 파일 패턴
   exclude: /node_modules/,       // 제외할 파일 패턴
+
+  // Vite 전용 옵션
+  injectClient: true,            // 클라이언트 런타임 자동 주입 (기본값: true)
+  locator: {                     // 런타임 옵션
+    triggerKey: "shift",         // 트리거 키 (기본값: "shift")
+  },
 });
 ```
 
@@ -81,43 +130,42 @@ vitePlugin({
 
 개발 서버에서 `Shift + Click`하면 브라우저 콘솔에 소스 위치가 출력됩니다.
 
-```text
+```
 [react-code-locator] src/components/Button.tsx:14:1
 ```
 
-### 단축키
-
-- `Shift + Click`: 소스 위치 찾기
-- `Alt + 1`: direct 모드 (JSX 호출부)
-- `Alt + 2`: screen 모드 (화면 컴포넌트)
-- `Alt + 3`: implementation 모드 (구현체)
-
-### 클릭 복사
-
 결과를 클릭하면 클립보드에 복사됩니다.
 
-## 수동 주입 (고급)
+### 단축키
 
-자동 주입을 사용하지 않고 직접 런타임을 초기화하려면:
+| 키 | 동작 |
+|----|------|
+| `Shift + Click` | 소스 위치 찾기 |
+| `Alt + 1` | direct 모드 (JSX 호출부 위치) |
+| `Alt + 2` | screen 모드 (화면에 보이는 컴포넌트) |
+| `Alt + 3` | implementation 모드 (구현체 위치) |
+
+## 수동 설정 (고급)
+
+Vite가 아닌 환경에서는 클라이언트 런타임을 직접 초기화해야 합니다.
 
 ```ts
 import { enableReactComponentJump } from "react-code-locator/client";
 
-if (import.meta.env.DEV) {
-  enableReactComponentJump({
-    triggerKey: "shift",
-    onLocate(result) {
-      console.log("Source:", result.source);
-    }
-  });
-}
+enableReactComponentJump({
+  triggerKey: "shift",
+  onLocate(result) {
+    console.log("Source:", result.source);
+  },
+});
 ```
 
-## 주의점
+## 알려진 제한사항
 
-- **개발 모드 전용**입니다.
-- React 낵부 필드인 Fiber와 `_debugSource`에 의존합니다.
-- production build에서는 동작하지 않습니다.
+- **React Native 미지원**: DOM API에 의존합니다.
+- **Turbopack 미지원**: Next.js 13+의 Turbopack은 현재 지원되지 않습니다.
+- **TSX generic arrow function**: `.tsx` 파일에서 `<T,>` 형태의 제네릭 화살표 함수가 있는 파일은 transform이 스킵됩니다. (`function` 선언형이나 `.ts` 파일에서는 정상 동작합니다.)
+- **개발 전용**: `NODE_ENV=development` 환경에서만 사용하세요.
 
 ## License
 

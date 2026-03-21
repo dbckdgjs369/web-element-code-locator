@@ -1,17 +1,17 @@
 /**
- * Zero-dependency source transform using acorn
- * No Babel required - pure JavaScript AST manipulation
+ * Source transform using acorn + acorn-typescript + acorn-jsx
+ * Pure JS, fully bundlable, no native bindings required
  */
 
-import { parse, type Node as AcornNode } from "acorn";
-import { generate } from "astring";
+import * as acorn from "acorn";
+import acornJsx from "acorn-jsx";
+import acornTs from "acorn-typescript";
+import { generate, GENERATOR } from "astring";
 import { walk } from "estree-walker";
 import type {
   Node,
   Program,
   FunctionDeclaration,
-  FunctionExpression,
-  ArrowFunctionExpression,
   VariableDeclarator,
   CallExpression,
   MemberExpression,
@@ -19,7 +19,16 @@ import type {
   ExpressionStatement,
   AssignmentExpression,
 } from "estree";
-import { SOURCE_PROP, JSX_SOURCE_PROP, JSX_SOURCE_REGISTRY_SYMBOL } from "../constants";
+import { SOURCE_PROP, JSX_SOURCE_REGISTRY_SYMBOL } from "../constants";
+
+// .tsx/.jsx: TypeScript plugin must come before JSX plugin
+const ParserTSX = acorn.Parser.extend(acornTs() as any, acornJsx());
+// .ts/.js: no JSX plugin (avoids <T,> generic arrow function ambiguity)
+const ParserTS = acorn.Parser.extend(acornTs() as any);
+
+function getParser(filename: string) {
+  return /\.[jt]sx$/.test(filename) ? ParserTSX : ParserTS;
+}
 
 export interface TransformOptions {
   filename: string;
@@ -33,11 +42,77 @@ interface Location {
   column: number;
 }
 
+// astring does not support JSX/TS nodes — extend with minimal printers
+const jsxGenerator: typeof GENERATOR & Record<string, (node: any, state: any) => void> = {
+  ...GENERATOR,
+  JSXElement(node: any, state: any) {
+    this[node.openingElement.type](node.openingElement, state);
+    for (const child of node.children) this[child.type](child, state);
+    if (node.closingElement) this[node.closingElement.type](node.closingElement, state);
+  },
+  JSXFragment(node: any, state: any) {
+    state.write("<>");
+    for (const child of node.children) this[child.type](child, state);
+    state.write("</>");
+  },
+  JSXOpeningElement(node: any, state: any) {
+    state.write("<");
+    this[node.name.type](node.name, state);
+    for (const attr of node.attributes) { state.write(" "); this[attr.type](attr, state); }
+    state.write(node.selfClosing ? " />" : ">");
+  },
+  JSXClosingElement(node: any, state: any) {
+    state.write("</"); this[node.name.type](node.name, state); state.write(">");
+  },
+  JSXIdentifier(node: any, state: any) { state.write(node.name); },
+  JSXMemberExpression(node: any, state: any) {
+    this[node.object.type](node.object, state);
+    state.write(".");
+    this[node.property.type](node.property, state);
+  },
+  JSXNamespacedName(node: any, state: any) {
+    this[node.namespace.type](node.namespace, state);
+    state.write(":");
+    this[node.name.type](node.name, state);
+  },
+  JSXAttribute(node: any, state: any) {
+    this[node.name.type](node.name, state);
+    if (node.value !== null) { state.write("="); this[node.value.type](node.value, state); }
+  },
+  JSXSpreadAttribute(node: any, state: any) {
+    state.write("{..."); this[node.argument.type](node.argument, state); state.write("}");
+  },
+  JSXExpressionContainer(node: any, state: any) {
+    state.write("{");
+    if (node.expression.type !== "JSXEmptyExpression") this[node.expression.type](node.expression, state);
+    state.write("}");
+  },
+  JSXEmptyExpression(_node: any, _state: any) {},
+  JSXText(node: any, state: any) { state.write(node.value); },
+  JSXOpeningFragment(_node: any, state: any) { state.write("<>"); },
+  JSXClosingFragment(_node: any, state: any) { state.write("</>"); },
+  // TypeScript nodes: strip type-only constructs, pass through expressions
+  TSTypeAnnotation(_node: any, _state: any) {},
+  TSTypeParameterDeclaration(_node: any, _state: any) {},
+  TSTypeParameterInstantiation(_node: any, _state: any) {},
+  TSInterfaceDeclaration(_node: any, _state: any) {},
+  TSTypeAliasDeclaration(_node: any, _state: any) {},
+  TSEnumDeclaration(_node: any, _state: any) {},
+  TSModuleDeclaration(_node: any, _state: any) {},
+  TSImportEqualsDeclaration(_node: any, _state: any) {},
+  TSExportAssignment(_node: any, _state: any) {},
+  TSNamespaceExportDeclaration(_node: any, _state: any) {},
+  TSAsExpression(node: any, state: any) { this[node.expression.type](node.expression, state); },
+  TSSatisfiesExpression(node: any, state: any) { this[node.expression.type](node.expression, state); },
+  TSNonNullExpression(node: any, state: any) { this[node.expression.type](node.expression, state); },
+  TSTypeAssertion(node: any, state: any) { this[node.expression.type](node.expression, state); },
+  TSInstantiationExpression(node: any, state: any) { this[node.expression.type](node.expression, state); },
+  TSParameterProperty(node: any, state: any) { this[node.parameter.type](node.parameter, state); },
+};
+
 function toRelativeSource(filename: string, loc: Location, projectRoot?: string): string {
   const root = projectRoot || process.cwd();
-  const relativePath = filename.startsWith(root) 
-    ? filename.slice(root.length + 1) 
-    : filename;
+  const relativePath = filename.startsWith(root) ? filename.slice(root.length + 1) : filename;
   return `${relativePath}:${loc.line}:${loc.column + 1}`;
 }
 
@@ -47,56 +122,37 @@ function isComponentName(name: string): boolean {
 
 function isReactElementFactoryCall(node: CallExpression): boolean {
   const callee = node.callee;
-  
   if (callee.type === "Identifier") {
-    const name = callee.name;
-    return [
-      "jsx", "jsxs", "jsxDEV",
-      "_jsx", "_jsxs", "_jsxDEV",
-      "createElement"
-    ].includes(name);
+    return ["jsx", "jsxs", "jsxDEV", "_jsx", "_jsxs", "_jsxDEV", "createElement"].includes(
+      (callee as Identifier).name,
+    );
   }
-  
-  // React.createElement
   if (callee.type === "MemberExpression") {
-    const obj = callee.object;
-    const prop = callee.property;
-    if (obj.type === "Identifier" && obj.name === "React" && 
-        prop.type === "Identifier" && prop.name === "createElement") {
-      return true;
-    }
+    const obj = (callee as MemberExpression).object;
+    const prop = (callee as MemberExpression).property;
+    if (
+      obj.type === "Identifier" && (obj as Identifier).name === "React" &&
+      prop.type === "Identifier" && (prop as Identifier).name === "createElement"
+    ) return true;
   }
-  
   return false;
 }
 
-function isSupportedComponentInit(
-  node: Node | null
-): boolean {
+function isSupportedComponentInit(node: Node | null): boolean {
   if (!node) return false;
-  
-  if (node.type === "ArrowFunctionExpression" || 
-      node.type === "FunctionExpression") {
-    return true;
-  }
-  
+  if (node.type === "ArrowFunctionExpression" || node.type === "FunctionExpression") return true;
   if (node.type !== "CallExpression") return false;
-  
-  const callee = node.callee;
+  const callee = (node as CallExpression).callee;
   if (callee.type === "Identifier") {
-    return ["memo", "forwardRef"].includes(callee.name);
+    return ["memo", "forwardRef"].includes((callee as Identifier).name);
   }
-  
-  // React.memo, React.forwardRef
   if (callee.type === "MemberExpression") {
-    const obj = callee.object;
-    const prop = callee.property;
-    if (obj.type === "Identifier" && obj.name === "React" && 
-        prop.type === "Identifier") {
-      return ["memo", "forwardRef"].includes(prop.name);
+    const obj = (callee as MemberExpression).object;
+    const prop = (callee as MemberExpression).property;
+    if (obj.type === "Identifier" && (obj as Identifier).name === "React" && prop.type === "Identifier") {
+      return ["memo", "forwardRef"].includes((prop as Identifier).name);
     }
   }
-  
   return false;
 }
 
@@ -131,13 +187,11 @@ function _markReactElementSource(element, source) {
   return element;
 }
 `;
-  return parse(code, { ecmaVersion: "latest" }).body[0] as FunctionDeclaration;
+  return ParserTS.parse(code, { ecmaVersion: "latest", sourceType: "module" })
+    .body[0] as unknown as FunctionDeclaration;
 }
 
-function wrapWithMarkElement(
-  node: Node,
-  sourceValue: string
-): CallExpression {
+function wrapWithMarkElement(node: Node, sourceValue: string): CallExpression {
   return {
     type: "CallExpression",
     callee: { type: "Identifier", name: "_markReactElementSource" },
@@ -148,7 +202,7 @@ function wrapWithMarkElement(
 
 export function transformSource(
   code: string,
-  options: TransformOptions
+  options: TransformOptions,
 ): { code: string; map?: any } | null {
   const {
     filename,
@@ -157,18 +211,14 @@ export function transformSource(
     injectComponentSource = true,
   } = options;
 
-  // Parse with acorn
   let ast: Program;
   try {
-    ast = parse(code, {
+    ast = getParser(filename).parse(code, {
       ecmaVersion: "latest",
       sourceType: "module",
-      ecmaFeatures: { jsx: true },
       locations: true,
-      ranges: true,
-    } as any) as Program;
-  } catch (err) {
-    // Parse error - return null to skip this file
+    }) as unknown as Program;
+  } catch {
     return null;
   }
 
@@ -178,68 +228,25 @@ export function transformSource(
   const assignments: Array<{ node: Node; parent: Node | null; assignment: ExpressionStatement }> = [];
 
   walk(ast as any, {
-    enter(node: any, parent: any, key: any, index: any) {
-      // Inject JSX source for element factory calls
-      if (injectJsxSource && node.type === "CallExpression") {
-        if (isReactElementFactoryCall(node)) {
-          const loc = node.loc;
-          if (loc) {
-            const sourceValue = toRelativeSource(filename, loc.start, projectRoot);
-            const wrapped = wrapWithMarkElement(node, sourceValue);
-            
-            // Replace the node
-            this.replace(wrapped);
-            needsHelper = true;
-            modified = true;
-          }
-        }
-      }
-
-      // Inject JSX source for JSX elements
-      if (injectJsxSource && node.type === "JSXElement") {
-        const opening = node.openingElement;
-        const loc = opening.loc;
-        
+    enter(node: any, parent: any) {
+      if (injectJsxSource && node.type === "CallExpression" && isReactElementFactoryCall(node)) {
+        const loc = node.loc;
         if (loc) {
-          const sourceValue = toRelativeSource(filename, loc.start, projectRoot);
-          
-          // Check if intrinsic element (lowercase) or component (uppercase)
-          const name = opening.name;
-          if (name.type === "JSXIdentifier") {
-            if (name.name[0] === name.name[0].toLowerCase()) {
-              // Intrinsic element - use _markReactElementSource
-              // This is handled by the CallExpression visitor for jsx()
-              // But for JSX syntax directly, we need different handling
-            } else {
-              // Component - add $componentSourceLoc prop
-              const sourceAttr = {
-                type: "JSXAttribute",
-                name: { type: "JSXIdentifier", name: JSX_SOURCE_PROP },
-                value: { type: "Literal", value: sourceValue },
-              };
-              opening.attributes.push(sourceAttr);
-              modified = true;
-            }
-          }
+          this.replace(wrapWithMarkElement(node, toRelativeSource(filename, loc.start, projectRoot)));
+          needsHelper = true;
+          modified = true;
         }
       }
 
-      // Inject component source for function declarations
       if (injectComponentSource && node.type === "FunctionDeclaration") {
         const name = node.id?.name;
-        if (name && isComponentName(name) && !seenComponents.has(name)) {
-          const loc = node.loc;
-          if (loc) {
-            const sourceValue = toRelativeSource(filename, loc.start, projectRoot);
-            const assignment = createSourceAssignment(name, sourceValue);
-            assignments.push({ node, parent, assignment });
-            seenComponents.add(name);
-            modified = true;
-          }
+        if (name && isComponentName(name) && !seenComponents.has(name) && node.loc) {
+          assignments.push({ node, parent, assignment: createSourceAssignment(name, toRelativeSource(filename, node.loc.start, projectRoot)) });
+          seenComponents.add(name);
+          modified = true;
         }
       }
 
-      // Inject component source for variable declarations
       if (injectComponentSource && node.type === "VariableDeclarator") {
         const id = node.id;
         if (id.type === "Identifier" && isComponentName(id.name) && !seenComponents.has(id.name)) {
@@ -247,9 +254,7 @@ export function transformSource(
           if (init && isSupportedComponentInit(init)) {
             const loc = node.loc || init.loc;
             if (loc) {
-              const sourceValue = toRelativeSource(filename, loc.start, projectRoot);
-              const assignment = createSourceAssignment(id.name, sourceValue);
-              assignments.push({ node, parent, assignment });
+              assignments.push({ node, parent, assignment: createSourceAssignment(id.name, toRelativeSource(filename, loc.start, projectRoot)) });
               seenComponents.add(id.name);
               modified = true;
             }
@@ -259,50 +264,29 @@ export function transformSource(
     },
   });
 
-  if (!modified) {
-    return null;
-  }
+  if (!modified) return null;
 
-  // Insert helper function if needed
   if (needsHelper) {
     const helper = createMarkElementHelper();
-    // Check if already exists
     const exists = ast.body.some(
-      (n) => n.type === "FunctionDeclaration" && 
-             n.id?.name === "_markReactElementSource"
+      (n) => n.type === "FunctionDeclaration" && (n as FunctionDeclaration).id?.name === "_markReactElementSource",
     );
-    if (!exists) {
-      ast.body.unshift(helper);
-    }
+    if (!exists) ast.body.unshift(helper);
   }
 
-  // Insert component source assignments
-  // We need to insert after the declaration, so we process in reverse order
   for (const { node, parent, assignment } of assignments.reverse()) {
-    if (parent && parent.type === "Program") {
+    if (parent?.type === "Program") {
       const index = ast.body.indexOf(node as any);
-      if (index !== -1) {
-        ast.body.splice(index + 1, 0, assignment as any);
-      }
-    } else if (parent && parent.type === "ExportNamedDeclaration") {
-      // For export const Component = ...
-      // Insert after the export statement
-      const exportParent = (ast as any).body.find((n: any) => 
-        n.type === "ExportNamedDeclaration" && n.declaration === parent
+      if (index !== -1) ast.body.splice(index + 1, 0, assignment as any);
+    } else if (parent?.type === "ExportNamedDeclaration") {
+      const exportNode = (ast as any).body.find(
+        (n: any) => n.type === "ExportNamedDeclaration" && n.declaration === parent,
       );
-      if (exportParent) {
-        const index = ast.body.indexOf(exportParent);
-        ast.body.splice(index + 1, 0, assignment as any);
-      }
-    } else if (parent && parent.type === "ExportDefaultDeclaration") {
-      // For export default function Component() ...
-      const index = ast.body.indexOf(parent as any);
-      ast.body.splice(index + 1, 0, assignment as any);
+      if (exportNode) ast.body.splice(ast.body.indexOf(exportNode) + 1, 0, assignment as any);
+    } else if (parent?.type === "ExportDefaultDeclaration") {
+      ast.body.splice(ast.body.indexOf(parent as any) + 1, 0, assignment as any);
     }
   }
 
-  // Generate code
-  const result = generate(ast as any, { indent: "  " });
-
-  return { code: result };
+  return { code: generate(ast as any, { generator: jsxGenerator }) };
 }

@@ -353,6 +353,7 @@ export function locateComponentSource(target: EventTarget | null, mode: LocatorM
 }
 
 export function enableReactComponentJump(options: LocatorOptions = {}) {
+  if (process.env.NODE_ENV !== "development") return;
   const overlay = createStatusOverlay(options.triggerKey ?? "shift");
   let currentMode: LocatorMode = "screen";
   const {

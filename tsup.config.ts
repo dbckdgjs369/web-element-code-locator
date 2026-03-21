@@ -4,7 +4,6 @@ export default defineConfig({
   entry: [
     "src/index.ts",
     "src/client.ts",
-    "src/vite.ts",
     "src/esbuild.ts",
     "src/swc.ts",
     "src/unplugin.ts",
@@ -16,6 +15,8 @@ export default defineConfig({
   splitting: false,
   sourcemap: true,
   target: "es2022",
+  minify: true,
   // Bundle acorn and astring so users don't need to install them
-  noExternal: ["acorn", "astring"],
+  // All bundled — pure JS, no native bindings
+  noExternal: ["acorn", "acorn-jsx", "acorn-typescript", "astring", "estree-walker"],
 });
