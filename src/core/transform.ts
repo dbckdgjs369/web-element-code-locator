@@ -1,22 +1,16 @@
 /**
  * Source transform using acorn + acorn-typescript + acorn-jsx
  * Pure JS, fully bundlable, no native bindings required
+ *
+ * Strategy: parse AST to find positions, then inject via string manipulation
+ * (no code regeneration — preserves original TypeScript/JSX exactly)
  */
 
 import * as acorn from "acorn";
 import acornJsx from "acorn-jsx";
 import acornTs from "acorn-typescript";
-import { generate, GENERATOR } from "astring";
 import { walk } from "estree-walker";
-import type {
-  Node,
-  Program,
-  CallExpression,
-  MemberExpression,
-  Identifier,
-  ExpressionStatement,
-  AssignmentExpression,
-} from "estree";
+import type { Node, Program, CallExpression, MemberExpression, Identifier } from "estree";
 import { SOURCE_PROP, JSX_SOURCE_PROP } from "../constants";
 
 // .tsx/.jsx: TypeScript plugin must come before JSX plugin
@@ -40,74 +34,6 @@ interface Location {
   column: number;
 }
 
-// astring does not support JSX/TS nodes — extend with minimal printers
-const jsxGenerator: typeof GENERATOR & Record<string, (node: any, state: any) => void> = {
-  ...GENERATOR,
-  JSXElement(node: any, state: any) {
-    this[node.openingElement.type](node.openingElement, state);
-    for (const child of node.children) this[child.type](child, state);
-    if (node.closingElement) this[node.closingElement.type](node.closingElement, state);
-  },
-  JSXFragment(node: any, state: any) {
-    state.write("<>");
-    for (const child of node.children) this[child.type](child, state);
-    state.write("</>");
-  },
-  JSXOpeningElement(node: any, state: any) {
-    state.write("<");
-    this[node.name.type](node.name, state);
-    for (const attr of node.attributes) { state.write(" "); this[attr.type](attr, state); }
-    state.write(node.selfClosing ? " />" : ">");
-  },
-  JSXClosingElement(node: any, state: any) {
-    state.write("</"); this[node.name.type](node.name, state); state.write(">");
-  },
-  JSXIdentifier(node: any, state: any) { state.write(node.name); },
-  JSXMemberExpression(node: any, state: any) {
-    this[node.object.type](node.object, state);
-    state.write(".");
-    this[node.property.type](node.property, state);
-  },
-  JSXNamespacedName(node: any, state: any) {
-    this[node.namespace.type](node.namespace, state);
-    state.write(":");
-    this[node.name.type](node.name, state);
-  },
-  JSXAttribute(node: any, state: any) {
-    this[node.name.type](node.name, state);
-    if (node.value !== null) { state.write("="); this[node.value.type](node.value, state); }
-  },
-  JSXSpreadAttribute(node: any, state: any) {
-    state.write("{..."); this[node.argument.type](node.argument, state); state.write("}");
-  },
-  JSXExpressionContainer(node: any, state: any) {
-    state.write("{");
-    if (node.expression.type !== "JSXEmptyExpression") this[node.expression.type](node.expression, state);
-    state.write("}");
-  },
-  JSXEmptyExpression(_node: any, _state: any) {},
-  JSXText(node: any, state: any) { state.write(node.value); },
-  JSXOpeningFragment(_node: any, state: any) { state.write("<>"); },
-  JSXClosingFragment(_node: any, state: any) { state.write("</>"); },
-  // TypeScript nodes: strip type-only constructs, pass through expressions
-  TSTypeAnnotation(_node: any, _state: any) {},
-  TSTypeParameterDeclaration(_node: any, _state: any) {},
-  TSTypeParameterInstantiation(_node: any, _state: any) {},
-  TSInterfaceDeclaration(_node: any, _state: any) {},
-  TSTypeAliasDeclaration(_node: any, _state: any) {},
-  TSEnumDeclaration(_node: any, _state: any) {},
-  TSModuleDeclaration(_node: any, _state: any) {},
-  TSImportEqualsDeclaration(_node: any, _state: any) {},
-  TSExportAssignment(_node: any, _state: any) {},
-  TSNamespaceExportDeclaration(_node: any, _state: any) {},
-  TSAsExpression(node: any, state: any) { this[node.expression.type](node.expression, state); },
-  TSSatisfiesExpression(node: any, state: any) { this[node.expression.type](node.expression, state); },
-  TSNonNullExpression(node: any, state: any) { this[node.expression.type](node.expression, state); },
-  TSTypeAssertion(node: any, state: any) { this[node.expression.type](node.expression, state); },
-  TSInstantiationExpression(node: any, state: any) { this[node.expression.type](node.expression, state); },
-  TSParameterProperty(node: any, state: any) { this[node.parameter.type](node.parameter, state); },
-};
-
 function toRelativeSource(filename: string, loc: Location, projectRoot?: string): string {
   const root = projectRoot || process.cwd();
   const relativePath = filename.startsWith(root) ? filename.slice(root.length + 1) : filename;
@@ -116,14 +42,6 @@ function toRelativeSource(filename: string, loc: Location, projectRoot?: string)
 
 function isComponentName(name: string): boolean {
   return /^[A-Z]/.test(name);
-}
-
-function createJsxSourceAttribute(sourceValue: string): any {
-  return {
-    type: "JSXAttribute",
-    name: { type: "JSXIdentifier", name: JSX_SOURCE_PROP },
-    value: { type: "Literal", value: sourceValue },
-  };
 }
 
 function isSupportedComponentInit(node: Node | null): boolean {
@@ -144,24 +62,6 @@ function isSupportedComponentInit(node: Node | null): boolean {
   return false;
 }
 
-function createSourceAssignment(name: string, sourceValue: string): ExpressionStatement {
-  return {
-    type: "ExpressionStatement",
-    expression: {
-      type: "AssignmentExpression",
-      operator: "=",
-      left: {
-        type: "MemberExpression",
-        object: { type: "Identifier", name },
-        property: { type: "Identifier", name: SOURCE_PROP },
-        computed: false,
-      } as MemberExpression,
-      right: { type: "Literal", value: sourceValue },
-    } as AssignmentExpression,
-  };
-}
-
-
 export function transformSource(
   code: string,
   options: TransformOptions,
@@ -172,6 +72,8 @@ export function transformSource(
     injectJsxSource = true,
     injectComponentSource = true,
   } = options;
+
+  const isJsx = /\.[jt]sx$/.test(filename);
 
   let ast: Program;
   try {
@@ -184,13 +86,21 @@ export function transformSource(
     return null;
   }
 
-  let modified = false;
+  // Collect (position, text) pairs for string insertion
+  const insertions: Array<{ at: number; text: string }> = [];
+  // Collect appends for __componentSourceLoc assignments
+  const appends: string[] = [];
+
   const seenComponents = new Set<string>();
-  const assignments: Array<{ node: Node; parent: Node | null; assignment: ExpressionStatement }> = [];
+  const parentStack: any[] = [];
 
   walk(ast as any, {
-    enter(node: any, parent: any) {
-      if (injectJsxSource && node.type === "JSXElement") {
+    enter(node: any) {
+      const parent = parentStack[parentStack.length - 1] ?? null;
+      const grandparent = parentStack[parentStack.length - 2] ?? null;
+
+      // Inject $componentSourceLoc as JSX attribute on component elements
+      if (injectJsxSource && isJsx && node.type === "JSXElement") {
         const opening = node.openingElement;
         const name = opening.name;
         let isComponent = false;
@@ -199,58 +109,90 @@ export function transformSource(
         } else if (name.type === "JSXMemberExpression") {
           isComponent = true;
         }
-        if (isComponent && node.loc) {
+        if (isComponent && node.loc && name.end !== undefined) {
           const alreadyHasAttr = opening.attributes.some(
             (attr: any) => attr.type === "JSXAttribute" && attr.name?.name === JSX_SOURCE_PROP,
           );
           if (!alreadyHasAttr) {
-            opening.attributes.push(createJsxSourceAttribute(toRelativeSource(filename, node.loc.start, projectRoot)));
-            modified = true;
+            const sourceValue = toRelativeSource(filename, node.loc.start, projectRoot);
+            insertions.push({ at: name.end, text: ` ${JSX_SOURCE_PROP}="${sourceValue}"` });
           }
         }
       }
 
+      // Inject __componentSourceLoc on function declarations
       if (injectComponentSource && node.type === "FunctionDeclaration") {
         const name = node.id?.name;
-        if (name && isComponentName(name) && !seenComponents.has(name) && node.loc) {
-          assignments.push({ node, parent, assignment: createSourceAssignment(name, toRelativeSource(filename, node.loc.start, projectRoot)) });
+        const isTopLevel =
+          parent?.type === "Program" ||
+          parent?.type === "ExportNamedDeclaration" ||
+          parent?.type === "ExportDefaultDeclaration";
+        if (name && isComponentName(name) && isTopLevel && !seenComponents.has(name) && node.loc) {
           seenComponents.add(name);
-          modified = true;
+          const sourceValue = toRelativeSource(filename, node.loc.start, projectRoot);
+          const insertAfter: number | undefined =
+            parent?.type === "ExportNamedDeclaration" || parent?.type === "ExportDefaultDeclaration"
+              ? parent.end
+              : node.end;
+          if (insertAfter !== undefined) {
+            insertions.push({ at: insertAfter, text: `\n${name}.${SOURCE_PROP} = "${sourceValue}";` });
+          }
         }
       }
 
+      // Inject __componentSourceLoc on variable component declarations
       if (injectComponentSource && node.type === "VariableDeclarator") {
         const id = node.id;
-        if (id.type === "Identifier" && isComponentName(id.name) && !seenComponents.has(id.name)) {
+        const isTopLevel =
+          parent?.type === "VariableDeclaration" &&
+          (grandparent?.type === "Program" ||
+            grandparent?.type === "ExportNamedDeclaration" ||
+            grandparent?.type === "ExportDefaultDeclaration");
+        if (
+          id.type === "Identifier" &&
+          isComponentName(id.name) &&
+          isTopLevel &&
+          !seenComponents.has(id.name)
+        ) {
           const init = node.init;
           if (init && isSupportedComponentInit(init)) {
             const loc = node.loc || init.loc;
             if (loc) {
-              assignments.push({ node, parent, assignment: createSourceAssignment(id.name, toRelativeSource(filename, loc.start, projectRoot)) });
               seenComponents.add(id.name);
-              modified = true;
+              const sourceValue = toRelativeSource(filename, loc.start, projectRoot);
+              // Use grandparent.end (ExportNamedDeclaration) or parent.end (VariableDeclaration)
+              const insertAfter: number | undefined =
+                grandparent?.type === "ExportNamedDeclaration" ||
+                grandparent?.type === "ExportDefaultDeclaration"
+                  ? grandparent.end
+                  : parent?.end;
+              if (insertAfter !== undefined) {
+                insertions.push({ at: insertAfter, text: `\n${id.name}.${SOURCE_PROP} = "${sourceValue}";` });
+              }
             }
           }
         }
       }
+
+      parentStack.push(node);
+    },
+    leave() {
+      parentStack.pop();
     },
   });
 
-  if (!modified) return null;
+  if (insertions.length === 0 && appends.length === 0) return null;
 
-  for (const { node, parent, assignment } of assignments.reverse()) {
-    if (parent?.type === "Program") {
-      const index = ast.body.indexOf(node as any);
-      if (index !== -1) ast.body.splice(index + 1, 0, assignment as any);
-    } else if (parent?.type === "ExportNamedDeclaration") {
-      const exportNode = (ast as any).body.find(
-        (n: any) => n.type === "ExportNamedDeclaration" && n.declaration === parent,
-      );
-      if (exportNode) ast.body.splice(ast.body.indexOf(exportNode) + 1, 0, assignment as any);
-    } else if (parent?.type === "ExportDefaultDeclaration") {
-      ast.body.splice(ast.body.indexOf(parent as any) + 1, 0, assignment as any);
-    }
+  // Apply insertions in reverse order so earlier positions stay valid
+  insertions.sort((a, b) => b.at - a.at);
+  let result = code;
+  for (const { at, text } of insertions) {
+    result = result.slice(0, at) + text + result.slice(at);
   }
 
-  return { code: generate(ast as any, { generator: jsxGenerator }) };
+  if (appends.length > 0) {
+    result += appends.join("");
+  }
+
+  return { code: result };
 }

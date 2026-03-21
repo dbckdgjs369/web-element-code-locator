@@ -39,7 +39,6 @@
     "acorn": "^8.16.0",
     "acorn-jsx": "^5.3.2",
     "acorn-typescript": "^1.4.13",
-    "astring": "^1.9.0",
     "estree-walker": "^3.0.3",
     "unplugin": "^3.0.0"
   },
