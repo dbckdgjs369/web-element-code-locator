@@ -225,15 +225,16 @@ export function transformSource(
   let modified = false;
   let needsHelper = false;
   const seenComponents = new Set<string>();
+  const wrappedNodes = new WeakSet();
   const assignments: Array<{ node: Node; parent: Node | null; assignment: ExpressionStatement }> = [];
 
   walk(ast as any, {
     enter(node: any, parent: any) {
-      if (injectJsxSource && node.type === "CallExpression" && isReactElementFactoryCall(node)) {
+      if (injectJsxSource && node.type === "CallExpression" && isReactElementFactoryCall(node) && !wrappedNodes.has(node)) {
         const loc = node.loc;
         if (loc) {
+          wrappedNodes.add(node);
           this.replace(wrapWithMarkElement(node, toRelativeSource(filename, loc.start, projectRoot)));
-          this.skip();
           needsHelper = true;
           modified = true;
         }
