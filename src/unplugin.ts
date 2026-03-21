@@ -103,10 +103,30 @@ const _unplugin: UnpluginInstance<ReactCodeLocatorOptions | undefined, false> =
 export const unplugin = _unplugin;
 
 // Vite plugin: source transform + client auto-injection
+// Creates a native Vite plugin (not via unplugin adapter) to guarantee enforce:"pre" is respected
 export function vitePlugin(options?: ReactCodeLocatorOptions): Plugin[] {
-  const { injectClient = true, locator, ...rest } = options ?? {};
+  const {
+    injectClient = true,
+    locator,
+    include = DEFAULT_INCLUDE,
+    exclude = DEFAULT_EXCLUDE,
+    projectRoot = process.cwd(),
+    injectComponentSource = true,
+    injectJsxSource = true,
+  } = options ?? {};
+
+  const transformPlugin: Plugin = {
+    name: "react-code-locator",
+    enforce: "pre",
+    transform(code, id) {
+      if (process.env.NODE_ENV !== "development") return null;
+      if (!shouldTransform(id, include, exclude)) return null;
+      return transformSource(code, { filename: id, projectRoot, injectComponentSource, injectJsxSource });
+    },
+  };
+
   return [
-    _unplugin.vite(rest) as Plugin,
+    transformPlugin,
     ...createViteClientInjector({ injectClient, locator }),
   ].filter(Boolean) as Plugin[];
 }
