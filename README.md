@@ -37,7 +37,7 @@ export default defineConfig({
 
 ```js
 // next.config.js
-const { webpackPlugin } = require("react-code-locator/webpack");
+const { webpackPlugin } = require("react-code-locator");
 
 module.exports = {
   webpack(config, { dev }) {
@@ -53,7 +53,7 @@ module.exports = {
 
 ```js
 // config-overrides.js
-const { webpackPlugin } = require("react-code-locator/webpack");
+const { webpackPlugin } = require("react-code-locator");
 
 module.exports = {
   webpack(config, env) {
