@@ -1,14 +1,18 @@
 {
   "name": "react-code-locator",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "typesVersions": {
     "*": {
-      "client": ["./dist/client.d.ts"],
-      "webpack": ["./dist/webpack.d.ts"]
+      "client": [
+        "./dist/client.d.ts"
+      ],
+      "webpack": [
+        "./dist/webpack.d.ts"
+      ]
     }
   },
   "exports": {
