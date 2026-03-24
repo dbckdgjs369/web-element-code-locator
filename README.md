@@ -145,7 +145,7 @@ vitePlugin({
 Vite가 아닌 환경에서는 클라이언트 런타임을 직접 초기화해야 합니다.
 
 ```ts
-import { enableReactComponentJump } from "react-code-locator/client";
+import { enableReactComponentJump } from "react-code-locator";
 
 const cleanup = enableReactComponentJump({
   triggerKey: "shift",         // "alt" | "meta" | "ctrl" | "shift" | "none" (기본값: "shift")

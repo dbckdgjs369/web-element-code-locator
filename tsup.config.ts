@@ -10,7 +10,7 @@ export default defineConfig({
     "src/webpack.ts",
   ],
   format: ["esm", "cjs"],
-  dts: true,
+  dts: { resolve: true },
   clean: true,
   splitting: false,
   sourcemap: true,
