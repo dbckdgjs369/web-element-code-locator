@@ -2,8 +2,8 @@
 
 개발 중인 React 앱에서 요소를 `Shift + Click`하면 해당 UI와 연결된 소스 위치를 찾는 패키지입니다.
 
-- React element 생성 시 source metadata를 주입하고, 브라우저 런타임에서 Fiber를 따라 위치를 계산합니다.
-- **완전 번들링**: acorn 기반 순수 JS 파서를 내장 — 별도 파서 설치 불필요
+- **Zero dependencies**: Babel, React DevTools, 브라우저 익스텐션 — 아무것도 필요 없습니다. 빌드 플러그인 하나로 끝납니다.
+- **React 19 지원**: `fiber._debugSource`는 React 19에서 제거됐습니다. 이 패키지는 빌드 시점에 직접 source metadata를 주입하므로 React 버전에 관계없이 동작합니다.
 - **Universal**: Vite, Webpack, Rollup, esbuild, Rspack 모두 지원
 - **개발 전용**: 프로덕션 빌드에 영향 없음
 
@@ -171,6 +171,8 @@ enableReactComponentJump({
 - **React Native 미지원**: DOM API에 의존합니다.
 - **Turbopack 미지원**: Next.js 13+의 Turbopack은 현재 지원되지 않습니다.
 - **TSX generic arrow function**: `.tsx` 파일에서 `<T,>` 형태의 제네릭 화살표 함수가 있는 파일은 transform이 스킵됩니다. (`function` 선언형이나 `.ts` 파일에서는 정상 동작합니다.)
+- **disabled 요소 / pointer-events 차단**: `disabled` 속성이 있는 버튼이나 `pointer-events: none`이 적용된 요소는 클릭 이벤트가 발생하지 않아 감지되지 않습니다.
+- **CRA (Create React App)**: webpack 설정이 숨겨져 있어 `react-app-rewired` 또는 `craco` 없이는 플러그인 적용이 불가합니다.
 - **개발 전용**: 플러그인의 `enabled` 기본값이 `NODE_ENV === "development"`이므로, 프로덕션 빌드에서는 자동으로 비활성화됩니다.
 
 ## License
