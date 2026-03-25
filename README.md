@@ -115,8 +115,10 @@ vitePlugin({
   exclude: /node_modules/,       // 제외할 파일 패턴
 
   // Vite 전용 옵션
-  injectClient: true,            // 클라이언트 런타임 자동 주입 (기본값: true)
-  locator: {                     // 런타임 옵션
+  // injectClient: true (기본값) — enableReactComponentJump()를 자동으로 HTML에 주입합니다.
+  // injectClient: false — 자동 주입을 끄고 직접 enableReactComponentJump()를 호출해 제어합니다.
+  injectClient: true,
+  locator: {                     // 런타임 옵션 (injectClient: true 일 때 자동 주입되는 설정)
     triggerKey: "shift",         // 트리거 키: "alt" | "meta" | "ctrl" | "shift" | "none" (기본값: "shift")
     projectRoot: process.cwd(),  // 소스 경로 정규화 기준 (기본값: 미설정)
     onLocate(result) {},         // 소스 위치 발견 시 콜백
@@ -144,15 +146,21 @@ vitePlugin({
 | `Alt + 2` | screen 모드 (화면에 보이는 컴포넌트) |
 | `Alt + 3` | implementation 모드 (구현체 위치) |
 
-## 수동 설정 (고급)
+## 수동 설정
 
-Vite가 아닌 환경에서는 클라이언트 런타임을 직접 초기화해야 합니다.
+`injectClient: false`로 자동 주입을 끄고 직접 `enableReactComponentJump`를 호출해 활성화 여부를 제어할 수 있습니다. Vite가 아닌 환경에서도 이 방식을 사용합니다.
 
 ```ts
+// vite.config.ts
+vitePlugin({ injectClient: false })
+```
+
+```ts
+// main.tsx
 import { enableReactComponentJump } from "react-code-locator";
 
-const cleanup = enableReactComponentJump({
-  enabled: process.env.MY_ENV === "dev",  // 기본값: NODE_ENV === "development"
+enableReactComponentJump({
+  enabled: true,               // 기본값: true. false로 설정하면 비활성화
   triggerKey: "shift",         // "alt" | "meta" | "ctrl" | "shift" | "none" (기본값: "shift")
   projectRoot: process.cwd(),  // 소스 경로 정규화 기준 (선택)
   onLocate(result) {
@@ -162,9 +170,6 @@ const cleanup = enableReactComponentJump({
     console.error("Error:", error);
   },
 });
-
-// 필요 시 이벤트 리스너 정리
-cleanup?.();
 ```
 
 ## 알려진 제한사항

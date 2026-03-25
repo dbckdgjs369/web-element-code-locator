@@ -1,6 +1,6 @@
 {
   "name": "react-code-locator",
-  "version": "0.2.24",
+  "version": "0.2.25",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

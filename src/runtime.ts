@@ -371,7 +371,7 @@ export function locateComponentSource(target: EventTarget | null, mode: LocatorM
 }
 
 export function enableReactComponentJump(options: LocatorOptions = {}) {
-  const enabled = options.enabled ?? (typeof process !== "undefined" && process.env.NODE_ENV === "development");
+  const enabled = options.enabled ?? true;
   if (!enabled) return;
   const overlay = createStatusOverlay(options.triggerKey ?? "shift");
   let currentMode: LocatorMode = "screen";
@@ -390,8 +390,6 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
       overlay?.setStatus(`[react-code-locator] ${message}`, "error");
     },
   } = options;
-
-  console.log("[react-code-locator] enabled", { triggerKey });
 
   const keyHandler = (event: KeyboardEvent) => {
     if (!event.altKey) {
