@@ -1,18 +1,19 @@
 {
   "name": "react-code-locator",
-  "version": "0.2.18",
+  "version": "0.2.24",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "browser": "./dist/client.js",
+      "browser": "./dist/runtime.js",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     }
   },
+  "sideEffects": false,
   "files": [
     "dist"
   ],

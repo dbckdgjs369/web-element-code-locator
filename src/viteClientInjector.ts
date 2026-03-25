@@ -30,9 +30,9 @@ function createClientInjector(locatorOptions: LocatorOptions = {}, projectRoot?:
       }
 
       return `
-        import { enableReactComponentJump } from "react-code-locator/client";
+        import { enableReactComponentJump } from "react-code-locator";
 
-        enableReactComponentJump(${serialized});
+        enableReactComponentJump({ ...${serialized}, enabled: true });
       `;
     },
     transformIndexHtml() {

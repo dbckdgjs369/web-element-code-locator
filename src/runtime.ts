@@ -32,6 +32,7 @@ export type LocatorOptions = {
   onLocate?: (result: LocatorResult) => void;
   onError?: (error: unknown) => void;
   projectRoot?: string;
+  enabled?: boolean;
 };
 
 type StatusOverlay = {
@@ -349,6 +350,7 @@ export function locateComponentSource(target: EventTarget | null, mode: LocatorM
   }
 
   const candidates = resolveSourceCandidates(fiber, projectRoot);
+
   const source = candidates[mode] ?? candidates.screen ?? candidates.direct ?? candidates.implementation;
   if (source) {
     return {
@@ -369,7 +371,8 @@ export function locateComponentSource(target: EventTarget | null, mode: LocatorM
 }
 
 export function enableReactComponentJump(options: LocatorOptions = {}) {
-  if (process.env.NODE_ENV !== "development") return;
+  const enabled = options.enabled ?? (typeof process !== "undefined" && process.env.NODE_ENV === "development");
+  if (!enabled) return;
   const overlay = createStatusOverlay(options.triggerKey ?? "shift");
   let currentMode: LocatorMode = "screen";
   const {

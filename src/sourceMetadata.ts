@@ -78,7 +78,10 @@ export function isProjectLocalFile(filename: string | undefined, projectRoot?: s
   const root = normalizeProjectRoot(projectRoot);
   const normalizedFilename = normalizeSlashes(filename);
 
-  if (!root) {
+  const isRelativePath =
+    !normalizedFilename.startsWith("/") && !/^[A-Za-z]:\//.test(normalizedFilename);
+
+  if (!root || isRelativePath) {
     return (
       !normalizedFilename.startsWith("../") &&
       !normalizedFilename.startsWith("/") &&

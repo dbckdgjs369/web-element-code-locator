@@ -5,6 +5,7 @@
  * Zero-dependency transform using acorn instead of Babel
  */
 
+import { readFileSync } from "node:fs";
 import { createUnplugin, type UnpluginInstance, type UnpluginOptions } from "unplugin";
 import { transformSource, type TransformOptions } from "./core/transform";
 import { createViteClientInjector } from "./viteClientInjector";
@@ -12,6 +13,13 @@ import type { LocatorOptions } from "./runtime";
 import type { Plugin } from "vite";
 
 export interface ReactCodeLocatorOptions extends Omit<TransformOptions, "filename"> {
+  /**
+   * Enable the plugin. Defaults to NODE_ENV === "development".
+   * Use this if your project uses a custom env variable instead of NODE_ENV.
+   * @example enabled: process.env.MY_ENV === 'dev'
+   */
+  enabled?: boolean;
+
   /**
    * Enable source transform for component definitions
    * @default true
@@ -73,6 +81,7 @@ function shouldTransform(id: string, include: RegExp | RegExp[], exclude: RegExp
 const _unplugin: UnpluginInstance<ReactCodeLocatorOptions | undefined, false> =
   createUnplugin((options = {}) => {
     const {
+      enabled,
       include = DEFAULT_INCLUDE,
       exclude = DEFAULT_EXCLUDE,
       projectRoot = process.cwd(),
@@ -85,7 +94,8 @@ const _unplugin: UnpluginInstance<ReactCodeLocatorOptions | undefined, false> =
       enforce: "pre",
 
       transform(code, id) {
-        if (process.env.NODE_ENV !== "development") return null;
+        const isEnabled = enabled ?? process.env.NODE_ENV === "development";
+        if (!isEnabled) return null;
         if (!shouldTransform(id, include, exclude)) {
           return null;
         }
@@ -106,6 +116,7 @@ export const unplugin = _unplugin;
 // Creates a native Vite plugin (not via unplugin adapter) to guarantee enforce:"pre" is respected
 export function vitePlugin(options?: ReactCodeLocatorOptions): Plugin[] {
   const {
+    enabled,
     injectClient = true,
     locator,
     include = DEFAULT_INCLUDE,
@@ -115,13 +126,52 @@ export function vitePlugin(options?: ReactCodeLocatorOptions): Plugin[] {
     injectJsxSource = true,
   } = options ?? {};
 
+  let resolvedEnabled = false;
+
   const transformPlugin: Plugin = {
     name: "react-code-locator",
     enforce: "pre",
+    configResolved(config) {
+      resolvedEnabled = enabled ?? config.command === "serve";
+    },
     transform(code, id) {
-      if (process.env.NODE_ENV !== "development") return null;
-      if (!shouldTransform(id, include, exclude)) return null;
-      return transformSource(code, { filename: id, projectRoot, injectComponentSource, injectJsxSource });
+      if (!resolvedEnabled) return null;
+      const filepath = id.split("?")[0];
+      if (!shouldTransform(filepath, include, exclude)) return null;
+
+      // @vitejs/plugin-react (enforce: "pre") may run before us and prepend a fast-refresh
+      // preamble (~19 lines) to the file. This shifts all line numbers, producing wrong source
+      // locations. Detect the preamble by comparing with the original source on disk, strip it,
+      // transform the stripped code (correct line numbers), then prepend it back.
+      let preamble = "";
+      let codeForTransform = code;
+
+      try {
+        const originalCode = readFileSync(filepath, "utf8");
+        if (code !== originalCode && code.length > originalCode.length) {
+          const originalHead = originalCode.slice(0, 60);
+          const idx = code.indexOf(originalHead);
+          if (idx > 0) {
+            preamble = code.slice(0, idx);
+            codeForTransform = originalCode;
+          }
+        }
+      } catch {
+        // ignore — fall back to transforming current code as-is
+      }
+
+      const result = transformSource(codeForTransform, { filename: filepath, projectRoot, injectComponentSource, injectJsxSource });
+      if (!result) return null;
+
+      if (!preamble) return result;
+
+      const preambleLineCount = (preamble.match(/\n/g) ?? []).length;
+      const map = result.map;
+      if (map && typeof map === "object" && typeof map.mappings === "string") {
+        map.mappings = ";".repeat(preambleLineCount) + map.mappings;
+      }
+
+      return { code: preamble + result.code, map };
     },
   };
 

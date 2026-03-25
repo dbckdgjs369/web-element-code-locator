@@ -3,9 +3,7 @@ import { defineConfig } from "tsup";
 export default defineConfig({
   entry: [
     "src/index.ts",
-    "src/client.ts",
-    "src/esbuild.ts",
-    "src/swc.ts",
+    "src/runtime.ts",
     "src/unplugin.ts",
   ],
   format: ["esm", "cjs"],
