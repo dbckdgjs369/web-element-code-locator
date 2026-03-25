@@ -49,15 +49,18 @@ export interface ReactCodeLocatorOptions extends Omit<TransformOptions, "filenam
    * @default /node_modules/
    */
   exclude?: RegExp | RegExp[];
+}
 
+export interface ViteReactCodeLocatorOptions extends ReactCodeLocatorOptions {
   /**
-   * Auto-inject client runtime into Vite dev server (Vite only)
+   * Auto-inject client runtime into Vite dev server.
+   * Set to false to manage enableReactComponentJump() manually.
    * @default true
    */
   injectClient?: boolean;
 
   /**
-   * Options passed to enableReactComponentJump (Vite only)
+   * Options passed to enableReactComponentJump when injectClient is true.
    */
   locator?: LocatorOptions;
 }
@@ -114,7 +117,7 @@ export const unplugin = _unplugin;
 
 // Vite plugin: source transform + client auto-injection
 // Creates a native Vite plugin (not via unplugin adapter) to guarantee enforce:"pre" is respected
-export function vitePlugin(options?: ReactCodeLocatorOptions): Plugin[] {
+export function vitePlugin(options?: ViteReactCodeLocatorOptions): Plugin[] {
   const {
     enabled,
     injectClient = true,
