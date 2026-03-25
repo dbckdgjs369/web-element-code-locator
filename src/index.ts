@@ -13,4 +13,4 @@ export {
 } from "./unplugin";
 
 // Re-export types
-export type { ReactCodeLocatorOptions } from "./unplugin";
+export type { ReactCodeLocatorOptions, ViteReactCodeLocatorOptions } from "./unplugin";

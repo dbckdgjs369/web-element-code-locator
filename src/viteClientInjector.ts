@@ -5,7 +5,6 @@ const VIRTUAL_CLIENT_MODULE_ID = "virtual:react-code-locator/client";
 const RESOLVED_VIRTUAL_CLIENT_MODULE_ID = `\0${VIRTUAL_CLIENT_MODULE_ID}`;
 
 export type ViteClientInjectorOptions = {
-  command?: "serve" | "build";
   locator?: LocatorOptions;
   injectClient?: boolean;
   projectRoot?: string;
@@ -53,8 +52,7 @@ function createClientInjector(locatorOptions: LocatorOptions = {}, projectRoot?:
 export function createViteClientInjector(
   options: ViteClientInjectorOptions = {},
 ): PluginOption[] {
-  const { command = "serve", locator = {}, injectClient = true, projectRoot } = options;
-  const isServe = command === "serve";
+  const { locator = {}, injectClient = true, projectRoot } = options;
 
-  return [isServe && injectClient ? createClientInjector(locator, projectRoot) : null].filter(Boolean);
+  return [injectClient ? createClientInjector(locator, projectRoot) : null].filter(Boolean);
 }
