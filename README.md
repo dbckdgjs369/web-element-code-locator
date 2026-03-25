@@ -40,10 +40,8 @@ export default defineConfig({
 const { webpackPlugin } = require("react-code-locator");
 
 module.exports = {
-  webpack(config, { dev }) {
-    if (dev) {
-      config.plugins.push(webpackPlugin());
-    }
+  webpack(config) {
+    config.plugins.push(webpackPlugin());
     return config;
   },
 };
@@ -56,10 +54,8 @@ module.exports = {
 const { webpackPlugin } = require("react-code-locator");
 
 module.exports = {
-  webpack(config, env) {
-    if (env === "development") {
-      config.plugins.push(webpackPlugin());
-    }
+  webpack(config) {
+    config.plugins.push(webpackPlugin());
     return config;
   },
 };
@@ -99,22 +95,21 @@ module.exports = {
 
 ## 옵션
 
-모든 플러그인이 동일한 옵션을 공유합니다.
-
 ```ts
-vitePlugin({
+// 모든 플러그인 공통 옵션
+webpackPlugin({
   // 플러그인 활성화 여부 (기본값: NODE_ENV === "development")
   // NODE_ENV 대신 커스텀 환경변수를 사용하는 경우 직접 지정하세요.
   enabled: process.env.MY_ENV === "dev",
 
-  // 소스 transform 옵션
-  projectRoot: process.cwd(),    // 프로젝트 루트 (상대 경로 기준)
-  injectComponentSource: true,   // 컴포넌트 정의에 소스 주입
-  injectJsxSource: true,         // JSX 호출부에 소스 주입
-  include: /\.[jt]sx$/,          // 포함할 파일 패턴
-  exclude: /node_modules/,       // 제외할 파일 패턴
+  projectRoot: process.cwd(),    // 프로젝트 루트 — 소스 경로의 상대 경로 기준 (기본값: process.cwd())
+});
 
-  // Vite 전용 옵션
+// Vite 전용 추가 옵션
+vitePlugin({
+  enabled: process.env.MY_ENV === "dev",
+  projectRoot: process.cwd(),
+
   // injectClient: true (기본값) — enableReactComponentJump()를 자동으로 HTML에 주입합니다.
   // injectClient: false — 자동 주입을 끄고 직접 enableReactComponentJump()를 호출해 제어합니다.
   injectClient: true,
@@ -142,9 +137,8 @@ vitePlugin({
 | 키 | 동작 |
 |----|------|
 | `Shift + Click` | 소스 위치 찾기 |
-| `Alt + 1` | direct 모드 (JSX 호출부 위치) |
-| `Alt + 2` | screen 모드 (화면에 보이는 컴포넌트) |
-| `Alt + 3` | implementation 모드 (구현체 위치) |
+| `Alt + 1` | screen 모드 (화면에 보이는 컴포넌트, 기본값) |
+| `Alt + 2` | implementation 모드 (구현체 위치) |
 
 ## 수동 설정
 
@@ -160,9 +154,9 @@ vitePlugin({ injectClient: false })
 import { enableReactComponentJump } from "react-code-locator";
 
 enableReactComponentJump({
-  enabled: true,               // 기본값: true. false로 설정하면 비활성화
-  triggerKey: "shift",         // "alt" | "meta" | "ctrl" | "shift" | "none" (기본값: "shift")
-  projectRoot: process.cwd(),  // 소스 경로 정규화 기준 (선택)
+  enabled: true,                   // 기본값: true. false로 설정하면 비활성화
+  triggerKey: "shift",             // "alt" | "meta" | "ctrl" | "shift" | "none" (기본값: "shift")
+  projectRoot: "/path/to/project", // 소스 경로 정규화 기준 (선택)
   onLocate(result) {
     console.log("Source:", result.source);  // result.source, result.mode
   },
@@ -177,7 +171,7 @@ enableReactComponentJump({
 - **React Native 미지원**: DOM API에 의존합니다.
 - **Turbopack 미지원**: Next.js 13+의 Turbopack은 현재 지원되지 않습니다.
 - **TSX generic arrow function**: `.tsx` 파일에서 `<T,>` 형태의 제네릭 화살표 함수가 있는 파일은 transform이 스킵됩니다. (`function` 선언형이나 `.ts` 파일에서는 정상 동작합니다.)
-- **개발 전용**: `NODE_ENV=development` 환경에서만 사용하세요.
+- **개발 전용**: 플러그인의 `enabled` 기본값이 `NODE_ENV === "development"`이므로, 프로덕션 빌드에서는 자동으로 비활성화됩니다.
 
 ## License
 

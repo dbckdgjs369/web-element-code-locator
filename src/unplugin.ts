@@ -12,7 +12,7 @@ import { createViteClientInjector } from "./viteClientInjector";
 import type { LocatorOptions } from "./runtime";
 import type { Plugin } from "vite";
 
-export interface ReactCodeLocatorOptions extends Omit<TransformOptions, "filename"> {
+export interface ReactCodeLocatorOptions {
   /**
    * Enable the plugin. Defaults to NODE_ENV === "development".
    * Use this if your project uses a custom env variable instead of NODE_ENV.
@@ -21,33 +21,19 @@ export interface ReactCodeLocatorOptions extends Omit<TransformOptions, "filenam
   enabled?: boolean;
 
   /**
-   * Enable source transform for component definitions
-   * @default true
-   */
-  injectComponentSource?: boolean;
-
-  /**
-   * Enable source transform for JSX call sites
-   * @default true
-   */
-  injectJsxSource?: boolean;
-
-  /**
-   * Project root for relative path calculation
+   * Project root for relative path calculation.
+   * Required in monorepo setups where process.cwd() differs from the project root.
    * @default process.cwd()
    */
   projectRoot?: string;
 
-  /**
-   * Include filter for file paths
-   * @default /\.[jt]sx$/
-   */
+  /** @internal */
+  injectComponentSource?: boolean;
+  /** @internal */
+  injectJsxSource?: boolean;
+  /** @internal */
   include?: RegExp | RegExp[];
-
-  /**
-   * Exclude filter for file paths
-   * @default /node_modules/
-   */
+  /** @internal */
   exclude?: RegExp | RegExp[];
 }
 

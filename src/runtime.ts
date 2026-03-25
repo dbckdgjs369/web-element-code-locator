@@ -6,7 +6,7 @@ import {
 import { getSourceFile, isProjectLocalSource } from "./sourceMetadata";
 
 export type TriggerKey = "alt" | "meta" | "ctrl" | "shift" | "none";
-export type LocatorMode = "direct" | "screen" | "implementation";
+export type LocatorMode = "screen" | "implementation";
 
 type ReactFiber = {
   return?: ReactFiber | null;
@@ -165,7 +165,6 @@ type SourceCandidate = {
 };
 
 type ResolvedCandidates = {
-  direct: string | null;
   screen: string | null;
   implementation: string | null;
 };
@@ -198,7 +197,6 @@ function resolveSourceCandidates(fiber: ReactFiber | null, projectRoot?: string)
     current = current.return ?? null;
   }
 
-  const direct = jsxCandidates[0]?.source ?? null;
   const nearestProjectLocalComponentFile = componentCandidates.find((candidate) => isProjectLocalSource(candidate.source))?.file;
   let screen: string | null = null;
   if (nearestProjectLocalComponentFile) {
@@ -224,17 +222,12 @@ function resolveSourceCandidates(fiber: ReactFiber | null, projectRoot?: string)
   const screenFallback = screen ?? projectLocalJsxCandidate ?? componentCandidates.find((candidate) => isProjectLocalSource(candidate.source))?.source ?? null;
 
   return {
-    direct: direct ?? screenFallback,
     screen: screenFallback,
     implementation: implementationComponentCandidate ?? implementationJsxCandidate ?? screenFallback,
   };
 }
 
 function getModeDescription(mode: LocatorMode) {
-  if (mode === "direct") {
-    return "Direct JSX";
-  }
-
   if (mode === "screen") {
     return "Screen source";
   }
@@ -307,7 +300,7 @@ function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
     }
   });
 
-  show(`[react-code-locator] enabled (${triggerKey}+click, alt+1/2/3 to switch mode)`, "idle");
+  show(`[react-code-locator] enabled (${triggerKey}+click, alt+1/2 to switch mode)`, "idle");
 
   const mount = () => {
     if (!element.isConnected && document.body) {
@@ -351,7 +344,7 @@ export function locateComponentSource(target: EventTarget | null, mode: LocatorM
 
   const candidates = resolveSourceCandidates(fiber, projectRoot);
 
-  const source = candidates[mode] ?? candidates.screen ?? candidates.direct ?? candidates.implementation;
+  const source = candidates[mode] ?? candidates.screen ?? candidates.implementation;
   if (source) {
     return {
       source,
@@ -397,20 +390,13 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
     }
 
     if (event.code === "Digit1") {
-      currentMode = "direct";
-      overlay?.setMode(currentMode);
-      event.preventDefault();
-      return;
-    }
-
-    if (event.code === "Digit2") {
       currentMode = "screen";
       overlay?.setMode(currentMode);
       event.preventDefault();
       return;
     }
 
-    if (event.code === "Digit3") {
+    if (event.code === "Digit2") {
       currentMode = "implementation";
       overlay?.setMode(currentMode);
       event.preventDefault();
