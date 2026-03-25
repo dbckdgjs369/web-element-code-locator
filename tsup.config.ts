@@ -2,15 +2,9 @@ import { defineConfig } from "tsup";
 
 export default defineConfig({
   entry: [
-    "src/babel.ts",
     "src/index.ts",
-    "src/client.ts",
-    "src/vite.ts",
-    "src/esbuild.ts",
-    "src/swc.ts",
-    "src/webpack.cts",
-    "src/babelInjectComponentSource.ts",
-    "src/webpackRuntimeEntry.ts",
+    "src/runtime.ts",
+    "src/unplugin.ts",
   ],
   format: ["esm", "cjs"],
   dts: true,
@@ -18,4 +12,8 @@ export default defineConfig({
   splitting: false,
   sourcemap: true,
   target: "es2022",
+  minify: true,
+  // Bundle acorn and astring so users don't need to install them
+  // All bundled — pure JS, no native bindings
+  noExternal: ["acorn", "acorn-jsx", "acorn-typescript", "estree-walker", "unplugin"],
 });

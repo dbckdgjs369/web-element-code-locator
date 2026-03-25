@@ -1,46 +1,19 @@
 {
   "name": "react-code-locator",
-  "version": "0.1.15",
+  "version": "0.2.25",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "browser": "./dist/runtime.js",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
-    },
-    "./client": {
-      "types": "./dist/client.d.ts",
-      "import": "./dist/client.js",
-      "require": "./dist/client.cjs"
-    },
-    "./babel": {
-      "types": "./dist/babel.d.ts",
-      "import": "./dist/babel.js",
-      "require": "./dist/babel.cjs"
-    },
-    "./vite": {
-      "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js",
-      "require": "./dist/vite.cjs"
-    },
-    "./esbuild": {
-      "types": "./dist/esbuild.d.ts",
-      "import": "./dist/esbuild.js",
-      "require": "./dist/esbuild.cjs"
-    },
-    "./swc": {
-      "types": "./dist/swc.d.ts",
-      "import": "./dist/swc.js",
-      "require": "./dist/swc.cjs"
-    },
-    "./webpack": {
-      "types": "./dist/webpack.d.cts",
-      "require": "./dist/webpack.cjs"
     }
   },
+  "sideEffects": false,
   "files": [
     "dist"
   ],
@@ -48,20 +21,21 @@
     "build": "npm run build:lib",
     "build:lib": "tsup",
     "deploy": "npm run build:lib && npm pack --dry-run --cache .npm-cache && npm publish --access public --cache .npm-cache --otp=$npm_config_otp",
+    "release:patch": "npm version patch && npm run build:lib && npm publish --access public --otp=$npm_config_otp",
+    "release:minor": "npm version minor && npm run build:lib && npm publish --access public --otp=$npm_config_otp",
+    "release:major": "npm version major && npm run build:lib && npm publish --access public --otp=$npm_config_otp",
     "prepublishOnly": "npm run build:lib",
     "typecheck": "tsc --noEmit"
   },
-  "peerDependencies": {
-    "@babel/core": ">=7"
-  },
-  "peerDependenciesMeta": {
-    "@babel/core": {
-      "optional": true
-    }
+  "dependencies": {
+    "acorn": "^8.16.0",
+    "acorn-jsx": "^5.3.2",
+    "acorn-typescript": "^1.4.13",
+    "estree-walker": "^3.0.3",
+    "unplugin": "^3.0.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.26.0",
-    "@types/babel__core": "^7.20.5",
+    "@types/estree": "^1.0.8",
     "@types/node": "^22.13.10",
     "tsup": "^8.5.1",
     "typescript": "^5.8.2",
