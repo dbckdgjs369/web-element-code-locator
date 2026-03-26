@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 const common = {
-  format: ["esm", "cjs"] as const,
+  format: ["esm", "cjs"] as ["esm", "cjs"],
   dts: true,
   splitting: false,
   sourcemap: true,

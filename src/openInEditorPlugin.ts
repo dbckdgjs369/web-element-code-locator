@@ -26,6 +26,6 @@ const launchEditorMiddleware = require("launch-editor-middleware") as (
  *   },
  * };
  */
-export function openInEditorMiddleware(srcRoot?: string) {
-  return launchEditorMiddleware(undefined as any, srcRoot ?? process.cwd());
+export function openInEditorMiddleware(editor?: string, srcRoot?: string) {
+  return launchEditorMiddleware(editor, srcRoot ?? process.cwd());
 }

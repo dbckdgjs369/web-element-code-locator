@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { createUnplugin, type UnpluginInstance, type UnpluginOptions } from "unplugin";
 import { transformSource, type TransformOptions } from "./core/transform";
 import { createViteClientInjector } from "./viteClientInjector";
+import { openInEditorMiddleware } from "./openInEditorPlugin";
 import type { LocatorOptions } from "./runtime";
 import type { Plugin } from "vite";
 
@@ -46,11 +47,11 @@ export interface ViteReactCodeLocatorOptions extends ReactCodeLocatorOptions {
   injectClient?: boolean;
 
   /**
-   * Automatically open the source file in your editor on locate.
-   * Vite: works out of the box. Webpack/Rspack: requires openInEditorMiddleware in devServer.
-   * @default false
+   * Editor to open when a source location is found.
+   * If not set, falls back to EDITOR env var, then auto-detects running editor.
+   * @example "code" | "cursor" | "webstorm"
    */
-  openInEditor?: boolean;
+  editor?: string;
 
   /**
    * Options passed to enableReactComponentJump when injectClient is true.
@@ -114,7 +115,7 @@ export function vitePlugin(options?: ViteReactCodeLocatorOptions): Plugin[] {
   const {
     enabled,
     injectClient = true,
-    openInEditor,
+    editor,
     locator,
     include = DEFAULT_INCLUDE,
     exclude = DEFAULT_EXCLUDE,
@@ -123,8 +124,6 @@ export function vitePlugin(options?: ViteReactCodeLocatorOptions): Plugin[] {
     injectJsxSource = true,
   } = options ?? {};
 
-  const resolvedLocator: LocatorOptions = { ...locator, ...(openInEditor !== undefined ? { openInEditor } : {}) };
-
   let resolvedEnabled = false;
 
   const transformPlugin: Plugin = {
@@ -132,6 +131,11 @@ export function vitePlugin(options?: ViteReactCodeLocatorOptions): Plugin[] {
     enforce: "pre",
     configResolved(config) {
       resolvedEnabled = enabled ?? config.command === "serve";
+    },
+    configureServer(server) {
+      if (editor) {
+        server.middlewares.use("/__open-in-editor", openInEditorMiddleware(editor, projectRoot));
+      }
     },
     transform(code, id) {
       if (!resolvedEnabled) return null;
@@ -176,7 +180,7 @@ export function vitePlugin(options?: ViteReactCodeLocatorOptions): Plugin[] {
 
   return [
     transformPlugin,
-    ...createViteClientInjector({ injectClient, locator: enabled === false ? { ...resolvedLocator, enabled: false } : resolvedLocator, projectRoot }),
+    ...createViteClientInjector({ injectClient, locator: enabled === false ? { ...locator, enabled: false } : locator, projectRoot }),
   ].filter(Boolean) as Plugin[];
 }
 
