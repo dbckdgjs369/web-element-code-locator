@@ -42,12 +42,6 @@ export type LocatorOptions = {
   openInEditor?: boolean;
 };
 
-type StatusOverlay = {
-  setStatus: (message: string, tone?: "idle" | "success" | "error") => void;
-  setCopyValue: (value: string | null) => void;
-  setMode: (mode: LocatorMode) => void;
-  remove: () => void;
-};
 
 function isTriggerPressed(event: MouseEvent, triggerKey: TriggerKey) {
   if (triggerKey === "none") {
@@ -234,112 +228,6 @@ function resolveSourceCandidates(fiber: ReactFiber | null, projectRoot?: string)
   };
 }
 
-function getModeDescription(mode: LocatorMode) {
-  if (mode === "screen") {
-    return "Screen source";
-  }
-
-  return "Implementation source";
-}
-
-function createStatusOverlay(triggerKey: TriggerKey): StatusOverlay | null {
-  if (typeof document === "undefined") {
-    return null;
-  }
-
-  const element = document.createElement("div");
-  let copyValue: string | null = null;
-  let currentMode: LocatorMode = "screen";
-  let hideTimer: ReturnType<typeof setTimeout> | null = null;
-  element.setAttribute("data-react-code-locator", "true");
-  Object.assign(element.style, {
-    position: "fixed",
-    right: "12px",
-    bottom: "12px",
-    zIndex: "2147483647",
-    padding: "8px 10px",
-    borderRadius: "8px",
-    background: "rgba(17, 24, 39, 0.92)",
-    color: "#fff",
-    fontSize: "12px",
-    lineHeight: "1.4",
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-    boxShadow: "0 8px 30px rgba(0, 0, 0, 0.25)",
-    pointerEvents: "auto",
-    cursor: "pointer",
-    maxWidth: "min(70vw, 720px)",
-    wordBreak: "break-all",
-    opacity: "0",
-    transition: "opacity 120ms ease",
-  });
-
-  const show = (message: string, tone: "idle" | "success" | "error") => {
-    element.textContent = message;
-    element.style.background =
-      tone === "success"
-        ? "rgba(6, 95, 70, 0.92)"
-        : tone === "error"
-          ? "rgba(153, 27, 27, 0.94)"
-          : "rgba(17, 24, 39, 0.92)";
-    element.style.opacity = "1";
-    element.style.pointerEvents = "auto";
-
-    if (hideTimer) {
-      clearTimeout(hideTimer);
-    }
-
-    hideTimer = setTimeout(() => {
-      element.style.opacity = "0";
-      element.style.pointerEvents = "none";
-    }, 2000);
-  };
-
-  element.addEventListener("click", async () => {
-    if (!copyValue) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(copyValue);
-      show(`[react-code-locator] copied`, "success");
-    } catch {
-      show(`[react-code-locator] copy failed`, "error");
-    }
-  });
-
-  show(`[react-code-locator] enabled (${triggerKey}+click, alt+1/2 to switch mode)`, "idle");
-
-  const mount = () => {
-    if (!element.isConnected && document.body) {
-      document.body.appendChild(element);
-    }
-  };
-
-  if (document.body) {
-    mount();
-  } else {
-    document.addEventListener("DOMContentLoaded", mount, { once: true });
-  }
-
-  return {
-    setStatus(message, tone = "idle") {
-      show(message, tone);
-    },
-    setCopyValue(value) {
-      copyValue = value;
-    },
-    setMode(mode) {
-      currentMode = mode;
-      show(`[react-code-locator] ${getModeDescription(mode)}`, "idle");
-    },
-    remove() {
-      if (hideTimer) {
-        clearTimeout(hideTimer);
-      }
-      element.remove();
-    },
-  };
-}
 
 export function locateComponentSource(target: EventTarget | null, mode: LocatorMode = "screen", projectRoot?: string): LocatorResult | null {
   const elementTarget =
@@ -370,10 +258,201 @@ export function locateComponentSource(target: EventTarget | null, mode: LocatorM
   };
 }
 
+const LOCATOR_ATTRS = ["data-react-code-locator", "data-react-code-locator-menu", "data-react-code-locator-highlight", "data-react-code-locator-label"];
+
+function isLocatorElement(el: Element) {
+  return LOCATOR_ATTRS.some((attr) => el.hasAttribute(attr));
+}
+
+function getTriggerKeyName(triggerKey: TriggerKey): string | null {
+  if (triggerKey === "alt") return "Alt";
+  if (triggerKey === "meta") return "Meta";
+  if (triggerKey === "ctrl") return "Control";
+  if (triggerKey === "shift") return "Shift";
+  return null;
+}
+
+function createHighlightOverlay() {
+  if (typeof document === "undefined") return null;
+
+  const overlay = document.createElement("div");
+  overlay.setAttribute("data-react-code-locator-highlight", "true");
+  Object.assign(overlay.style, {
+    position: "fixed",
+    zIndex: "2147483645",
+    pointerEvents: "none",
+    background: "rgba(59, 130, 246, 0.12)",
+    outline: "2px solid rgba(59, 130, 246, 0.75)",
+    outlineOffset: "-1px",
+    boxSizing: "border-box",
+    display: "none",
+  });
+
+  const label = document.createElement("div");
+  label.setAttribute("data-react-code-locator-label", "true");
+  Object.assign(label.style, {
+    position: "fixed",
+    zIndex: "2147483646",
+    pointerEvents: "none",
+    background: "rgba(37, 99, 235, 0.92)",
+    color: "#fff",
+    fontSize: "11px",
+    lineHeight: "1.4",
+    padding: "2px 7px",
+    borderRadius: "3px",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+    maxWidth: "min(60vw, 480px)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    display: "none",
+  });
+
+  const mount = () => {
+    if (document.body) {
+      document.body.appendChild(overlay);
+      document.body.appendChild(label);
+    }
+  };
+
+  if (document.body) {
+    mount();
+  } else {
+    document.addEventListener("DOMContentLoaded", mount, { once: true });
+  }
+
+  return {
+    update(element: Element, source: string) {
+      const rect = element.getBoundingClientRect();
+
+      Object.assign(overlay.style, {
+        left: `${rect.left}px`,
+        top: `${rect.top}px`,
+        width: `${rect.width}px`,
+        height: `${rect.height}px`,
+        display: "block",
+      });
+
+      const shortSource = source.replace(/^.*[/\\]/, "").replace(/:(\d+):\d+$/, ":$1");
+      label.textContent = shortSource;
+      label.style.display = "block";
+
+      const labelTop = rect.top - 22;
+      label.style.top = labelTop >= 4 ? `${labelTop}px` : `${rect.bottom + 4}px`;
+      label.style.left = `${Math.max(4, rect.left)}px`;
+    },
+    hide() {
+      overlay.style.display = "none";
+      label.style.display = "none";
+    },
+    remove() {
+      overlay.remove();
+      label.remove();
+    },
+  };
+}
+
+function createContextMenu() {
+  let currentMenu: HTMLElement | null = null;
+
+  const dismiss = () => {
+    currentMenu?.remove();
+    currentMenu = null;
+    document.removeEventListener("click", dismiss, true);
+    document.removeEventListener("keydown", onKeyDown, true);
+  };
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") dismiss();
+  };
+
+  const show = (x: number, y: number, source: string, onOpen: (() => void) | null) => {
+    dismiss();
+
+    const menu = document.createElement("div");
+    menu.setAttribute("data-react-code-locator-menu", "true");
+    Object.assign(menu.style, {
+      position: "fixed",
+      left: `${x}px`,
+      top: `${y}px`,
+      zIndex: "2147483647",
+      background: "rgba(17, 24, 39, 0.96)",
+      borderRadius: "6px",
+      padding: "4px 0",
+      boxShadow: "0 8px 30px rgba(0, 0, 0, 0.35)",
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      fontSize: "12px",
+      color: "#fff",
+      minWidth: "160px",
+    });
+
+    const makeItem = (label: string, onClick: () => void) => {
+      const item = document.createElement("div");
+      item.textContent = label;
+      Object.assign(item.style, {
+        padding: "7px 14px",
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+      });
+      item.addEventListener("mouseenter", () => {
+        item.style.background = "rgba(255, 255, 255, 0.1)";
+      });
+      item.addEventListener("mouseleave", () => {
+        item.style.background = "";
+      });
+      item.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onClick();
+        dismiss();
+      });
+      return item;
+    };
+
+    if (onOpen) {
+      menu.appendChild(makeItem("Open in editor", onOpen));
+    }
+
+    const copyItem = makeItem("Copy path", async () => {
+      try {
+        await navigator.clipboard.writeText(source);
+        copyItem.textContent = "Copied!";
+        copyItem.style.color = "rgba(134, 239, 172, 1)";
+        setTimeout(() => {
+          copyItem.textContent = "Copy path";
+          copyItem.style.color = "";
+        }, 1200);
+      } catch {}
+    });
+    menu.appendChild(copyItem);
+
+    document.body.appendChild(menu);
+    currentMenu = menu;
+
+    requestAnimationFrame(() => {
+      if (!currentMenu) return;
+      const rect = currentMenu.getBoundingClientRect();
+      if (rect.right > window.innerWidth) {
+        currentMenu.style.left = `${x - rect.width}px`;
+      }
+      if (rect.bottom > window.innerHeight) {
+        currentMenu.style.top = `${y - rect.height}px`;
+      }
+    });
+
+    setTimeout(() => {
+      document.addEventListener("click", dismiss, true);
+      document.addEventListener("keydown", onKeyDown, true);
+    }, 0);
+  };
+
+  return { show, dismiss };
+}
+
 export function enableReactComponentJump(options: LocatorOptions = {}) {
   const enabled = options.enabled ?? true;
   if (!enabled) return;
-  const overlay = createStatusOverlay(options.triggerKey ?? "shift");
+  const contextMenu = createContextMenu();
+  const highlight = createHighlightOverlay();
   let currentMode: LocatorMode = "screen";
   const {
     triggerKey = "shift",
@@ -383,39 +462,65 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
     onError,
   } = options;
 
+  const triggerKeyName = getTriggerKeyName(triggerKey);
+  let triggerActive = triggerKey === "none";
+
   const handleLocate = onLocate ?? ((result: LocatorResult) => {
     console.log(`[react-code-locator] ${result.source}`);
-    overlay?.setCopyValue(result.source);
-    overlay?.setStatus(`[react-code-locator] ${result.source}`, "success");
-    if (openInEditor) {
-      fetch(`/__open-in-editor?file=${encodeURIComponent(result.source)}`).catch(() => {});
-    }
   });
 
   const handleError = onError ?? ((error: unknown) => {
     console.error("[react-code-locator]", error);
-    const message = error instanceof Error ? error.message : String(error);
-    overlay?.setCopyValue(null);
-    overlay?.setStatus(`[react-code-locator] ${message}`, "error");
   });
 
-  const keyHandler = (event: KeyboardEvent) => {
-    if (!event.altKey) {
+  const keyDownHandler = (event: KeyboardEvent) => {
+    if (event.altKey) {
+      if (event.code === "Digit1") {
+        currentMode = "screen";
+        event.preventDefault();
+        return;
+      }
+      if (event.code === "Digit2") {
+        currentMode = "implementation";
+        event.preventDefault();
+        return;
+      }
+    }
+
+    if (triggerKeyName && event.key === triggerKeyName && !triggerActive) {
+      triggerActive = true;
+    }
+  };
+
+  const keyUpHandler = (event: KeyboardEvent) => {
+    if (triggerKeyName && event.key === triggerKeyName) {
+      triggerActive = false;
+      highlight?.hide();
+    }
+  };
+
+  const mouseMoveHandler = (event: MouseEvent) => {
+    if (!triggerActive) return;
+
+    const elementTarget =
+      event.target instanceof Element
+        ? event.target
+        : event.target instanceof Node
+          ? (event.target as Node).parentElement
+          : null;
+
+    if (!elementTarget || isLocatorElement(elementTarget)) {
+      highlight?.hide();
       return;
     }
 
-    if (event.code === "Digit1") {
-      currentMode = "screen";
-      overlay?.setMode(currentMode);
-      event.preventDefault();
+    const result = locateComponentSource(event.target, currentMode, projectRoot);
+    if (!result) {
+      highlight?.hide();
       return;
     }
 
-    if (event.code === "Digit2") {
-      currentMode = "implementation";
-      overlay?.setMode(currentMode);
-      event.preventDefault();
-    }
+    highlight?.update(elementTarget, result.source);
   };
 
   const handler = (event: MouseEvent) => {
@@ -434,12 +539,45 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
     handleLocate(result);
   };
 
+  const contextMenuHandler = (event: MouseEvent) => {
+    if (!triggerActive) return;
+
+    const elementTarget =
+      event.target instanceof Element
+        ? event.target
+        : event.target instanceof Node
+          ? (event.target as Node).parentElement
+          : null;
+
+    if (elementTarget && isLocatorElement(elementTarget)) return;
+
+    const result = locateComponentSource(event.target, currentMode, projectRoot);
+    if (!result) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    highlight?.hide();
+
+    const onOpen = openInEditor
+      ? () => fetch(`/__open-in-editor?file=${encodeURIComponent(result.source)}`).catch(() => {})
+      : null;
+
+    contextMenu.show(event.clientX, event.clientY, result.source, onOpen);
+  };
+
   document.addEventListener("click", handler, true);
-  document.addEventListener("keydown", keyHandler, true);
+  document.addEventListener("keydown", keyDownHandler, true);
+  document.addEventListener("keyup", keyUpHandler, true);
+  document.addEventListener("mousemove", mouseMoveHandler, true);
+  document.addEventListener("contextmenu", contextMenuHandler, true);
 
   return () => {
     document.removeEventListener("click", handler, true);
-    document.removeEventListener("keydown", keyHandler, true);
-    overlay?.remove();
+    document.removeEventListener("keydown", keyDownHandler, true);
+    document.removeEventListener("keyup", keyUpHandler, true);
+    document.removeEventListener("mousemove", mouseMoveHandler, true);
+    document.removeEventListener("contextmenu", contextMenuHandler, true);
+    contextMenu.dismiss();
+    highlight?.remove();
   };
 }
