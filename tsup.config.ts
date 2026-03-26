@@ -31,6 +31,12 @@ export default defineConfig([
           js: `import { createRequire } from 'module'; const require = createRequire(import.meta.url);`,
         };
       }
+      if (context.format === "cjs") {
+        options.banner = {
+          js: `var __importMetaUrl = require('url').pathToFileURL(__filename).href;`,
+        };
+        options.define = { ...options.define, "import.meta.url": "__importMetaUrl" };
+      }
     },
   },
 ]);
