@@ -1,20 +1,36 @@
 import { defineConfig } from "tsup";
 
-export default defineConfig({
-  entry: [
-    "src/index.ts",
-    "src/runtime.ts",
-    "src/unplugin.ts",
-    "src/openInEditorPlugin.ts",
-  ],
-  format: ["esm", "cjs"],
+const common = {
+  format: ["esm", "cjs"] as const,
   dts: true,
-  clean: true,
   splitting: false,
   sourcemap: true,
-  target: "es2022",
+  target: "es2022" as const,
   minify: true,
-  // Bundle acorn and astring so users don't need to install them
-  // All bundled — pure JS, no native bindings
-  noExternal: ["acorn", "acorn-jsx", "acorn-typescript", "estree-walker", "unplugin", "launch-editor-middleware", "launch-editor"],
-});
+};
+
+export default defineConfig([
+  // Browser runtime — no Node.js APIs
+  {
+    ...common,
+    entry: ["src/runtime.ts"],
+    platform: "browser",
+    clean: true,
+  },
+  // Node.js side (build plugins, middleware)
+  // ESM output needs createRequire shim for bundled CJS dependencies (launch-editor-middleware)
+  {
+    ...common,
+    entry: ["src/index.ts", "src/unplugin.ts", "src/openInEditorPlugin.ts"],
+    platform: "node",
+    clean: false,
+    noExternal: ["acorn", "acorn-jsx", "acorn-typescript", "estree-walker", "unplugin", "launch-editor-middleware", "launch-editor"],
+    esbuildOptions(options, context) {
+      if (context.format === "esm") {
+        options.banner = {
+          js: `import { createRequire } from 'module'; const require = createRequire(import.meta.url);`,
+        };
+      }
+    },
+  },
+]);
