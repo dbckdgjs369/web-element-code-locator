@@ -1,6 +1,6 @@
 # React Code Locator
 
-개발 중인 React 앱에서 요소를 `Shift + Click`하면 해당 UI와 연결된 소스 위치를 찾는 패키지입니다.
+개발 중인 React 앱에서 요소를 우클릭하면 해당 UI와 연결된 소스 위치를 찾는 패키지입니다.
 
 - **Zero dependencies**: Babel, React DevTools, 브라우저 익스텐션 — 아무것도 필요 없습니다. 빌드 플러그인 하나로 끝납니다.
 - **React 19 지원**: `fiber._debugSource`는 React 19에서 제거됐습니다. 이 패키지는 빌드 시점에 직접 source metadata를 주입하므로 React 버전에 관계없이 동작합니다.
@@ -113,9 +113,13 @@ vitePlugin({
   // injectClient: true (기본값) — enableReactComponentJump()를 자동으로 HTML에 주입합니다.
   // injectClient: false — 자동 주입을 끄고 직접 enableReactComponentJump()를 호출해 제어합니다.
   injectClient: true,
+
+  editor: "code",                // 에디터 커맨드 (기본값: EDITOR 환경변수 → 실행 중인 에디터 자동 감지)
+
   locator: {                     // 런타임 옵션 (injectClient: true 일 때 자동 주입되는 설정)
     triggerKey: "shift",         // 트리거 키: "alt" | "meta" | "ctrl" | "shift" | "none" (기본값: "shift")
     projectRoot: process.cwd(),  // 소스 경로 정규화 기준 (기본값: 미설정)
+    openInEditor: true,          // 우클릭 메뉴에 "Open in editor" 항목 표시 (기본값: false)
     onLocate(result) {},         // 소스 위치 발견 시 콜백
     onError(error) {},           // 오류 발생 시 콜백
   },
@@ -124,34 +128,40 @@ vitePlugin({
 
 ## 사용
 
-개발 서버에서 `Shift + Click`하면 브라우저 콘솔에 소스 위치가 출력됩니다.
+### 호버 하이라이트
 
-```
-[react-code-locator] src/components/Button.tsx:14:1
-```
+트리거 키(기본값: `Shift`)를 누른 상태로 요소에 마우스를 올리면 DevTools 인스펙터처럼 해당 요소가 파란색으로 하이라이트되고, 연결된 컴포넌트 파일명과 줄 번호가 표시됩니다.
 
-결과를 클릭하면 클립보드에 복사됩니다.
+### 우클릭 컨텍스트 메뉴
+
+트리거 키를 누른 상태에서 요소를 **우클릭**하면 컨텍스트 메뉴가 표시됩니다.
+
+| 항목 | 동작 |
+|------|------|
+| Open in editor | 에디터에서 해당 소스 파일 열기 (`openInEditor: true` 설정 시 표시) |
+| Copy path | 소스 경로를 클립보드에 복사 |
 
 ### 단축키
 
 | 키 | 동작 |
 |----|------|
-| `Shift + Click` | 소스 위치 찾기 |
+| `Shift + Click` | 소스 위치를 콘솔에 출력 |
 | `Alt + 1` | screen 모드 (화면에 보이는 컴포넌트, 기본값) |
 | `Alt + 2` | implementation 모드 (구현체 위치) |
 
 ## 에디터 열기
 
-`openInEditor: true`를 설정하면 소스 위치를 찾는 즉시 에디터에서 해당 파일이 열립니다.
+`openInEditor: true`를 설정하면 우클릭 메뉴에 "Open in editor" 항목이 나타납니다.
 
 ### Vite
-
-별도 설정 없이 `openInEditor: true`만 추가하면 됩니다.
 
 ```ts
 // vite.config.ts
 vitePlugin({
-  openInEditor: true,
+  editor: "code",   // VS Code CLI 커맨드
+  locator: {
+    openInEditor: true,
+  },
 })
 ```
 
@@ -210,6 +220,7 @@ enableReactComponentJump({
   enabled: true,                   // 기본값: true. false로 설정하면 비활성화
   triggerKey: "shift",             // "alt" | "meta" | "ctrl" | "shift" | "none" (기본값: "shift")
   projectRoot: "/path/to/project", // 소스 경로 정규화 기준 (선택)
+  openInEditor: true,              // 우클릭 메뉴에 "Open in editor" 표시
   onLocate(result) {
     console.log("Source:", result.source);  // result.source, result.mode
   },

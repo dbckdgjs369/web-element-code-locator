@@ -29,13 +29,14 @@ export interface ReactCodeLocatorOptions {
   projectRoot?: string;
 
   /** @internal */
-  injectComponentSource?: boolean;
-  /** @internal */
-  injectJsxSource?: boolean;
-  /** @internal */
   include?: RegExp | RegExp[];
   /** @internal */
   exclude?: RegExp | RegExp[];
+}
+
+interface InternalPluginOptions extends ReactCodeLocatorOptions {
+  injectComponentSource?: boolean;
+  injectJsxSource?: boolean;
 }
 
 export interface ViteReactCodeLocatorOptions extends ReactCodeLocatorOptions {
@@ -75,7 +76,7 @@ function shouldTransform(id: string, include: RegExp | RegExp[], exclude: RegExp
   return includePatterns.some((pattern) => pattern.test(id));
 }
 
-const _unplugin: UnpluginInstance<ReactCodeLocatorOptions | undefined, false> =
+const _unplugin: UnpluginInstance<InternalPluginOptions | undefined, false> =
   createUnplugin((options = {}) => {
     const {
       enabled,
@@ -107,7 +108,7 @@ const _unplugin: UnpluginInstance<ReactCodeLocatorOptions | undefined, false> =
     } as UnpluginOptions;
   });
 
-export const unplugin = _unplugin;
+export const unplugin = _unplugin as unknown as UnpluginInstance<ReactCodeLocatorOptions | undefined, false>;
 
 // Vite plugin: source transform + client auto-injection
 // Creates a native Vite plugin (not via unplugin adapter) to guarantee enforce:"pre" is respected
@@ -122,7 +123,7 @@ export function vitePlugin(options?: ViteReactCodeLocatorOptions): Plugin[] {
     projectRoot = process.cwd(),
     injectComponentSource = true,
     injectJsxSource = true,
-  } = options ?? {};
+  } = (options ?? {}) as ViteReactCodeLocatorOptions & InternalPluginOptions;
 
   let resolvedEnabled = false;
 
@@ -185,9 +186,9 @@ export function vitePlugin(options?: ViteReactCodeLocatorOptions): Plugin[] {
 }
 
 // Other build tool adapters
-export const webpackPlugin = _unplugin.webpack;
-export const rollupPlugin = _unplugin.rollup;
-export const esbuildPlugin = _unplugin.esbuild;
-export const rspackPlugin = _unplugin.rspack;
+export const webpackPlugin = _unplugin.webpack as UnpluginInstance<ReactCodeLocatorOptions | undefined, false>["webpack"];
+export const rollupPlugin = _unplugin.rollup as UnpluginInstance<ReactCodeLocatorOptions | undefined, false>["rollup"];
+export const esbuildPlugin = _unplugin.esbuild as UnpluginInstance<ReactCodeLocatorOptions | undefined, false>["esbuild"];
+export const rspackPlugin = _unplugin.rspack as UnpluginInstance<ReactCodeLocatorOptions | undefined, false>["rspack"];
 
 export default unplugin;
