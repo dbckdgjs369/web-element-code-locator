@@ -33,6 +33,13 @@ export type LocatorOptions = {
   onError?: (error: unknown) => void;
   projectRoot?: string;
   enabled?: boolean;
+  /**
+   * Automatically open the source file in your editor on locate.
+   * Requires a `/__open-in-editor` endpoint on the dev server.
+   * - Vite: built-in, no extra setup needed.
+   * - Webpack/Rspack: add `openInEditorMiddleware()` to devServer.
+   */
+  openInEditor?: boolean;
 };
 
 type StatusOverlay = {
@@ -371,18 +378,26 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
   const {
     triggerKey = "shift",
     projectRoot,
-    onLocate = (result) => {
-      console.log(`[react-code-locator] ${result.source}`);
-      overlay?.setCopyValue(result.source);
-      overlay?.setStatus(`[react-code-locator] ${result.source}`, "success");
-    },
-    onError = (error) => {
-      console.error("[react-code-locator]", error);
-      const message = error instanceof Error ? error.message : String(error);
-      overlay?.setCopyValue(null);
-      overlay?.setStatus(`[react-code-locator] ${message}`, "error");
-    },
+    openInEditor = false,
+    onLocate,
+    onError,
   } = options;
+
+  const handleLocate = onLocate ?? ((result: LocatorResult) => {
+    console.log(`[react-code-locator] ${result.source}`);
+    overlay?.setCopyValue(result.source);
+    overlay?.setStatus(`[react-code-locator] ${result.source}`, "success");
+    if (openInEditor) {
+      fetch(`/__open-in-editor?file=${encodeURIComponent(result.source)}`).catch(() => {});
+    }
+  });
+
+  const handleError = onError ?? ((error: unknown) => {
+    console.error("[react-code-locator]", error);
+    const message = error instanceof Error ? error.message : String(error);
+    overlay?.setCopyValue(null);
+    overlay?.setStatus(`[react-code-locator] ${message}`, "error");
+  });
 
   const keyHandler = (event: KeyboardEvent) => {
     if (!event.altKey) {
@@ -410,13 +425,13 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
 
     const result = locateComponentSource(event.target, currentMode, projectRoot);
     if (!result) {
-      onError(new Error("No React component source metadata found for clicked element."));
+      handleError(new Error("No React component source metadata found for clicked element."));
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
-    onLocate(result);
+    handleLocate(result);
   };
 
   document.addEventListener("click", handler, true);

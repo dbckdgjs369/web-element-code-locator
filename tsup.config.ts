@@ -5,6 +5,7 @@ export default defineConfig({
     "src/index.ts",
     "src/runtime.ts",
     "src/unplugin.ts",
+    "src/openInEditorPlugin.ts",
   ],
   format: ["esm", "cjs"],
   dts: true,
@@ -15,5 +16,5 @@ export default defineConfig({
   minify: true,
   // Bundle acorn and astring so users don't need to install them
   // All bundled — pure JS, no native bindings
-  noExternal: ["acorn", "acorn-jsx", "acorn-typescript", "estree-walker", "unplugin"],
+  noExternal: ["acorn", "acorn-jsx", "acorn-typescript", "estree-walker", "unplugin", "launch-editor-middleware", "launch-editor"],
 });

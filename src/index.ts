@@ -14,3 +14,6 @@ export {
 
 // Re-export types
 export type { ReactCodeLocatorOptions, ViteReactCodeLocatorOptions } from "./unplugin";
+
+// Open in editor middleware (for webpack/rspack devServer)
+export { openInEditorMiddleware } from "./openInEditorPlugin";

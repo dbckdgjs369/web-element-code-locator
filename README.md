@@ -140,6 +140,59 @@ vitePlugin({
 | `Alt + 1` | screen 모드 (화면에 보이는 컴포넌트, 기본값) |
 | `Alt + 2` | implementation 모드 (구현체 위치) |
 
+## 에디터 열기
+
+`openInEditor: true`를 설정하면 소스 위치를 찾는 즉시 에디터에서 해당 파일이 열립니다.
+
+### Vite
+
+별도 설정 없이 `locator` 옵션에 `openInEditor: true`만 추가하면 됩니다.
+
+```ts
+// vite.config.ts
+vitePlugin({
+  locator: { openInEditor: true },
+})
+```
+
+### Webpack / Rspack
+
+`openInEditorMiddleware`를 devServer에 추가해야 합니다.
+
+```js
+// webpack.config.js
+const { webpackPlugin, openInEditorMiddleware } = require("react-code-locator");
+
+module.exports = {
+  plugins: [webpackPlugin()],
+  devServer: {
+    setupMiddlewares(middlewares) {
+      middlewares.unshift({
+        name: "open-in-editor",
+        path: "/__open-in-editor",
+        middleware: openInEditorMiddleware(),
+      });
+      return middlewares;
+    },
+  },
+};
+```
+
+```ts
+// main.tsx
+import { enableReactComponentJump } from "react-code-locator";
+
+enableReactComponentJump({ openInEditor: true });
+```
+
+열리는 에디터는 `EDITOR` 환경변수로 지정할 수 있습니다. 미설정 시 현재 실행 중인 에디터를 자동 감지합니다.
+
+```bash
+EDITOR=code npm run dev   # VS Code
+EDITOR=webstorm npm run dev
+EDITOR=cursor npm run dev
+```
+
 ## 수동 설정
 
 `injectClient: false`로 자동 주입을 끄고 직접 `enableReactComponentJump`를 호출해 활성화 여부를 제어할 수 있습니다. Vite가 아닌 환경에서도 이 방식을 사용합니다.
