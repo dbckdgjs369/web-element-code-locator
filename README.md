@@ -146,12 +146,12 @@ vitePlugin({
 
 ### Vite
 
-별도 설정 없이 `locator` 옵션에 `openInEditor: true`만 추가하면 됩니다.
+별도 설정 없이 `openInEditor: true`만 추가하면 됩니다.
 
 ```ts
 // vite.config.ts
 vitePlugin({
-  locator: { openInEditor: true },
+  openInEditor: true,
 })
 ```
 

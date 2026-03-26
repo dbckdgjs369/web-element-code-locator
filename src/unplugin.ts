@@ -46,6 +46,13 @@ export interface ViteReactCodeLocatorOptions extends ReactCodeLocatorOptions {
   injectClient?: boolean;
 
   /**
+   * Automatically open the source file in your editor on locate.
+   * Vite: works out of the box. Webpack/Rspack: requires openInEditorMiddleware in devServer.
+   * @default false
+   */
+  openInEditor?: boolean;
+
+  /**
    * Options passed to enableReactComponentJump when injectClient is true.
    */
   locator?: LocatorOptions;
@@ -107,6 +114,7 @@ export function vitePlugin(options?: ViteReactCodeLocatorOptions): Plugin[] {
   const {
     enabled,
     injectClient = true,
+    openInEditor,
     locator,
     include = DEFAULT_INCLUDE,
     exclude = DEFAULT_EXCLUDE,
@@ -114,6 +122,8 @@ export function vitePlugin(options?: ViteReactCodeLocatorOptions): Plugin[] {
     injectComponentSource = true,
     injectJsxSource = true,
   } = options ?? {};
+
+  const resolvedLocator: LocatorOptions = { ...locator, ...(openInEditor !== undefined ? { openInEditor } : {}) };
 
   let resolvedEnabled = false;
 
@@ -166,7 +176,7 @@ export function vitePlugin(options?: ViteReactCodeLocatorOptions): Plugin[] {
 
   return [
     transformPlugin,
-    ...createViteClientInjector({ injectClient, locator: enabled === false ? { ...locator, enabled: false } : locator, projectRoot }),
+    ...createViteClientInjector({ injectClient, locator: enabled === false ? { ...resolvedLocator, enabled: false } : resolvedLocator, projectRoot }),
   ].filter(Boolean) as Plugin[];
 }
 
