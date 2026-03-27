@@ -94,3 +94,53 @@ module.exports = {
 ## Next.js Turbopack 환경에서 동작하지 않아요
 
 Turbopack은 현재 지원되지 않습니다. `next dev --turbo` 대신 기본 webpack 모드(`next dev`)를 사용하세요.
+
+---
+
+## webpack 환경에서 `ERR_REQUIRE_ESM` 에러가 나요 (0.3.1 ~ 0.3.4)
+
+```
+Error [ERR_REQUIRE_ESM]: require() of ES Module .../transform.js not supported.
+transform.js is treated as an ES module because "type": "module" in package.json.
+```
+
+**원인:**
+
+webpack의 `loader-runner`는 로더를 `require()`(CommonJS)로 로드합니다. 그런데 이 패키지는 `package.json`에 `"type": "module"`이 선언되어 있어 `.js` 파일이 모두 ESM으로 취급됩니다. 0.3.1에서 CJS 번들 내부의 `import.meta.url` 문제를 수정하는 과정에서 webpack 로더 파일이 ESM으로 취급되는 부작용이 발생했습니다.
+
+**해결 (0.3.5):**
+
+- `dist/webpack/loaders/transform.cjs`, `load.cjs` 추가 — `.cjs` 확장자는 `"type": "module"` 환경에서도 항상 CJS로 처리됨
+- dist 번들의 로더 경로를 `"webpack/loaders/transform"` → `"webpack/loaders/transform.cjs"`로 패치
+- `scripts/patch-loaders.cjs` + `build:patch-loaders` 빌드 스크립트로 자동화
+
+---
+
+## webpack + HtmlWebpackPlugin 환경에서 `Module parse failed: Unexpected token` 에러가 나요 (0.3.4 이하)
+
+```
+Module parse failed: Unexpected token (1:0)
+File was processed with these loaders:
+ * html-webpack-plugin/lib/loader.js
+ * react-code-locator/dist/webpack/loaders/transform.cjs
+> <!DOCTYPE html>
+```
+
+**원인:**
+
+`unplugin`은 `transformInclude`가 정의되지 않으면 webpack rule에 파일 필터를 추가하지 않습니다. 이로 인해 transform 로더가 모든 파일에 적용되고, `HtmlWebpackPlugin`이 HTML 템플릿을 child compilation으로 처리할 때 JS 파서가 `<!DOCTYPE html>`을 파싱하려다 실패합니다.
+
+**해결 (0.3.5):**
+
+`transformInclude`를 추가하여 `.jsx` / `.tsx` 파일에만 로더가 적용되도록 webpack rule에 필터를 등록했습니다.
+
+```ts
+// src/unplugin.ts
+transformInclude(id) {
+  return shouldTransform(id, include, exclude); // JSX/TSX만 매칭
+},
+transform(code, id) {
+  // 이미 필터링된 파일만 도달
+  ...
+}
+```
