@@ -18,13 +18,14 @@
     "dist"
   ],
   "scripts": {
-    "build": "npm run build:lib",
+    "build": "npm run build:lib && npm run build:copy-loaders",
     "build:lib": "tsup",
-    "deploy": "npm run build:lib && npm pack --dry-run --cache .npm-cache && npm publish --access public --cache .npm-cache --otp=$npm_config_otp",
-    "release:patch": "npm version patch && npm run build:lib && npm publish --access public --otp=$npm_config_otp",
-    "release:minor": "npm version minor && npm run build:lib && npm publish --access public --otp=$npm_config_otp",
-    "release:major": "npm version major && npm run build:lib && npm publish --access public --otp=$npm_config_otp",
-    "prepublishOnly": "npm run build:lib",
+    "build:copy-loaders": "node -e \"const fs=require('fs');const path=require('path');['webpack','rspack'].forEach(t=>{const src=path.join('node_modules/unplugin/dist',t,'loaders');const dst=path.join('dist',t,'loaders');fs.mkdirSync(dst,{recursive:true});fs.readdirSync(src).forEach(f=>fs.copyFileSync(path.join(src,f),path.join(dst,f)))})\"",
+    "deploy": "npm run build && npm pack --dry-run --cache .npm-cache && npm publish --access public --cache .npm-cache --otp=$npm_config_otp",
+    "release:patch": "npm version patch && npm run build && npm publish --access public --otp=$npm_config_otp",
+    "release:minor": "npm version minor && npm run build && npm publish --access public --otp=$npm_config_otp",
+    "release:major": "npm version major && npm run build && npm publish --access public --otp=$npm_config_otp",
+    "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
