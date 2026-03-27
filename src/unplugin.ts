@@ -91,12 +91,13 @@ const _unplugin: UnpluginInstance<InternalPluginOptions | undefined, false> =
       name: "react-code-locator",
       enforce: "pre",
 
+      transformInclude(id) {
+        return shouldTransform(id, include, exclude);
+      },
+
       transform(code, id) {
         const isEnabled = enabled ?? process.env.NODE_ENV === "development";
         if (!isEnabled) return null;
-        if (!shouldTransform(id, include, exclude)) {
-          return null;
-        }
 
         return transformSource(code, {
           filename: id,

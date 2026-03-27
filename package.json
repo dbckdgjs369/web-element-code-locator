@@ -1,6 +1,6 @@
 {
   "name": "react-code-locator",
-  "version": "0.3.3",
+  "version": "0.3.6",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -18,9 +18,10 @@
     "dist"
   ],
   "scripts": {
-    "build": "npm run build:lib && npm run build:copy-loaders",
+    "build": "npm run build:lib && npm run build:copy-loaders && npm run build:patch-loaders",
     "build:lib": "tsup",
-    "build:copy-loaders": "node -e \"const fs=require('fs');const path=require('path');['webpack','rspack'].forEach(t=>{const src=path.join('node_modules/unplugin/dist',t,'loaders');const dst=path.join('dist',t,'loaders');fs.mkdirSync(dst,{recursive:true});fs.readdirSync(src).forEach(f=>fs.copyFileSync(path.join(src,f),path.join(dst,f)))})\"",
+    "build:copy-loaders": "node -e \"const fs=require('fs');const path=require('path');['webpack','rspack'].forEach(t=>{const src=path.join('node_modules/unplugin/dist',t,'loaders');const dst=path.join('dist',t,'loaders');fs.mkdirSync(dst,{recursive:true});fs.readdirSync(src).forEach(f=>{fs.copyFileSync(path.join(src,f),path.join(dst,f));if(f.endsWith('.js')){fs.copyFileSync(path.join(src,f),path.join(dst,f.replace(/\\.js$/,'.cjs')))}})})\"",
+    "build:patch-loaders": "node scripts/patch-loaders.cjs",
     "deploy": "npm run build && npm pack --dry-run --cache .npm-cache && npm publish --access public --cache .npm-cache --otp=$npm_config_otp",
     "release:patch": "npm version patch && npm run build && npm publish --access public --otp=$npm_config_otp",
     "release:minor": "npm version minor && npm run build && npm publish --access public --otp=$npm_config_otp",
