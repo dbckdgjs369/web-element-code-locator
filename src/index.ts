@@ -17,3 +17,7 @@ export type { ReactCodeLocatorOptions, ViteReactCodeLocatorOptions } from "./unp
 
 // Open in editor middleware (for webpack/rspack devServer)
 export { openInEditorMiddleware } from "./openInEditorPlugin";
+
+// Editor constants
+export { SUPPORTED_EDITORS, DEFAULT_EDITOR } from "./editors";
+export type { SupportedEditor } from "./editors";
