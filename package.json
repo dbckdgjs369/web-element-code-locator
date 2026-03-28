@@ -1,6 +1,6 @@
 {
   "name": "react-code-locator",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -12,6 +12,14 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dbckdgjs369/web-element-code-locator.git"
+  },
+  "homepage": "https://github.com/dbckdgjs369/web-element-code-locator#readme",
+  "bugs": {
+    "url": "https://github.com/dbckdgjs369/web-element-code-locator/issues"
   },
   "sideEffects": false,
   "files": [

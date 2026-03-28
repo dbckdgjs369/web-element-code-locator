@@ -258,7 +258,7 @@ export function locateComponentSource(target: EventTarget | null, mode: LocatorM
   };
 }
 
-const LOCATOR_ATTRS = ["data-react-code-locator", "data-react-code-locator-menu", "data-react-code-locator-highlight", "data-react-code-locator-label"];
+const LOCATOR_ATTRS = ["data-react-code-locator", "data-react-code-locator-menu", "data-react-code-locator-highlight", "data-react-code-locator-label", "data-react-code-locator-toast"];
 
 function isLocatorElement(el: Element) {
   return LOCATOR_ATTRS.some((attr) => el.hasAttribute(attr));
@@ -270,6 +270,48 @@ function getTriggerKeyName(triggerKey: TriggerKey): string | null {
   if (triggerKey === "ctrl") return "Control";
   if (triggerKey === "shift") return "Shift";
   return null;
+}
+
+function showToast(message: string, tone: "idle" | "success" = "idle") {
+  if (typeof document === "undefined") return;
+
+  const existing = document.querySelector("[data-react-code-locator-toast]");
+  existing?.remove();
+
+  const toast = document.createElement("div");
+  toast.setAttribute("data-react-code-locator-toast", "true");
+  Object.assign(toast.style, {
+    position: "fixed",
+    right: "12px",
+    bottom: "12px",
+    zIndex: "2147483647",
+    padding: "7px 12px",
+    borderRadius: "8px",
+    background: tone === "success" ? "rgba(6, 95, 70, 0.92)" : "rgba(17, 24, 39, 0.92)",
+    color: "#fff",
+    fontSize: "12px",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+    boxShadow: "0 8px 30px rgba(0, 0, 0, 0.25)",
+    pointerEvents: "none",
+    opacity: "1",
+    transition: "opacity 200ms ease",
+  });
+
+  toast.textContent = message;
+  document.body.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.opacity = "0";
+    setTimeout(() => toast.remove(), 200);
+  }, 1800);
+}
+
+function showModeToast(mode: LocatorMode) {
+  showToast(
+    mode === "screen"
+      ? "[react-code-locator] Screen source (Alt+1)"
+      : "[react-code-locator] Implementation source (Alt+2)"
+  );
 }
 
 function createHighlightOverlay() {
@@ -415,13 +457,10 @@ function createContextMenu() {
     const copyItem = makeItem("Copy path", async () => {
       try {
         await navigator.clipboard.writeText(source);
-        copyItem.textContent = "Copied!";
-        copyItem.style.color = "rgba(134, 239, 172, 1)";
-        setTimeout(() => {
-          copyItem.textContent = "Copy path";
-          copyItem.style.color = "";
-        }, 1200);
-      } catch {}
+        showToast("[react-code-locator] Copied!", "success");
+      } catch {
+        showToast("[react-code-locator] Copy failed", "idle");
+      }
     });
     menu.appendChild(copyItem);
 
@@ -477,11 +516,13 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
     if (event.altKey) {
       if (event.code === "Digit1") {
         currentMode = "screen";
+        showModeToast(currentMode);
         event.preventDefault();
         return;
       }
       if (event.code === "Digit2") {
         currentMode = "implementation";
+        showModeToast(currentMode);
         event.preventDefault();
         return;
       }
