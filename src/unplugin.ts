@@ -11,6 +11,7 @@ import { transformSource, type TransformOptions } from "./core/transform";
 import { createViteClientInjector } from "./viteClientInjector";
 import { openInEditorMiddleware } from "./openInEditorPlugin";
 import type { LocatorOptions } from "./runtime";
+import { DEFAULT_EDITOR, type SupportedEditor } from "./editors";
 import type { Plugin } from "vite";
 
 export interface ReactCodeLocatorOptions {
@@ -49,10 +50,9 @@ export interface ViteReactCodeLocatorOptions extends ReactCodeLocatorOptions {
 
   /**
    * Editor to open when a source location is found.
-   * If not set, falls back to EDITOR env var, then auto-detects running editor.
-   * @example "code" | "cursor" | "webstorm"
+   * @default "code"
    */
-  editor?: string;
+  editor?: SupportedEditor;
 
   /**
    * Options passed to enableReactComponentJump when injectClient is true.
@@ -135,9 +135,7 @@ export function vitePlugin(options?: ViteReactCodeLocatorOptions): Plugin[] {
       resolvedEnabled = enabled ?? config.command === "serve";
     },
     configureServer(server) {
-      if (editor) {
-        server.middlewares.use("/__open-in-editor", openInEditorMiddleware(editor, projectRoot));
-      }
+      server.middlewares.use("/__open-in-editor", openInEditorMiddleware(editor ?? DEFAULT_EDITOR, projectRoot));
     },
     transform(code, id) {
       if (!resolvedEnabled) return null;
