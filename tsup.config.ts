@@ -18,13 +18,13 @@ export default defineConfig([
     clean: true,
   },
   // Node.js side (build plugins, middleware)
-  // ESM output needs createRequire shim for bundled CJS dependencies (launch-editor-middleware)
+  // ESM output needs createRequire shim for bundled CJS dependencies (launch-editor)
   {
     ...common,
     entry: ["src/index.ts", "src/unplugin.ts", "src/openInEditorPlugin.ts"],
     platform: "node",
     clean: false,
-    noExternal: ["acorn", "acorn-jsx", "acorn-typescript", "estree-walker", "unplugin", "launch-editor-middleware", "launch-editor"],
+    noExternal: ["acorn", "acorn-jsx", "acorn-typescript", "estree-walker", "unplugin", "launch-editor"],
     esbuildOptions(options, context) {
       if (context.format === "esm") {
         options.banner = {

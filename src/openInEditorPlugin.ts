@@ -1,9 +1,11 @@
+import path from "node:path";
+
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const launchEditorMiddleware = require("launch-editor-middleware") as (
+const launchEditor = require("launch-editor") as (
+  file: string,
   specifiedEditor?: string,
-  srcRoot?: string,
   onErrorCallback?: (fileName: string, errorMessage: string) => void,
-) => (req: any, res: any) => void;
+) => void;
 
 /**
  * Express-compatible middleware that opens files in the editor.
@@ -27,5 +29,27 @@ const launchEditorMiddleware = require("launch-editor-middleware") as (
  * };
  */
 export function openInEditorMiddleware(editor?: string, srcRoot?: string) {
-  return launchEditorMiddleware(editor, srcRoot ?? process.cwd());
+  const root = srcRoot ?? process.cwd();
+
+  return function (req: any, res: any) {
+    let url: URL;
+    try {
+      url = new URL(req.url.startsWith("http") ? req.url : `http://localhost${req.url}`);
+    } catch {
+      res.statusCode = 500;
+      res.end("react-code-locator: invalid URL.");
+      return;
+    }
+
+    const file = url.searchParams.get("file");
+    if (!file) {
+      res.statusCode = 500;
+      res.end('react-code-locator: required query param "file" is missing.');
+      return;
+    }
+
+    const resolved = file.startsWith("file://") ? file : path.resolve(root, file);
+    launchEditor(resolved, editor);
+    res.end();
+  };
 }
