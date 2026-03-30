@@ -252,14 +252,53 @@ function isLocatorElement(el: Element) {
 
 ---
 
+## 9. npm 배포 패키지 크기 최적화 (tsup.config.ts)
+
+현재 npm unpacked 크기 ~7MB. code-inspector-plugin은 18.1KB. 원인 두 가지:
+
+### 9-1. Source Map 포함 (`sourcemap: true`)
+
+```
+index.js         420KB  ← 실제 코드
+index.js.map    1.2MB   ← 매핑 정보 (본체의 3배)
+```
+
+source map은 브라우저 devtools 디버깅용. 의존성이 번들에 포함된 상태라 map이 특히 크게 나옴.
+라이브러리 배포 시 사용자에게 필요 없음.
+
+**개선안:** `tsup.config.ts`에서 `sourcemap: true` → `sourcemap: false`
+
+**효과:** ~3.7MB 제거 (dist 6.6MB → ~2.9MB)
+
+---
+
+### 9-2. CJS/ESM 이중 빌드 (`format: ["esm", "cjs"]`)
+
+현재 entry 3개 × 포맷 2개 = 6개 번들 파일 (+ map까지 12개).
+ESM/CJS 둘 다 필요한 이유는 환경 호환성이지만, **의존성이 번들에 포함된 상태**에서 이중 빌드하므로 용량이 2배.
+
+| 환경 | 사용 포맷 |
+|---|---|
+| Vite, Rollup, 최신 Node.js | ESM (`.js`) |
+| webpack 4, Jest, 구버전 Node.js | CJS (`.cjs`) |
+
+현재 `package.json` exports에서 `import` / `require` 조건으로 분기하므로 이중 빌드 자체는 필수.
+단, source map만 제거해도 이중 빌드의 용량 부담이 절반으로 줄어듦.
+
+**우선순위:** 높음 (9-1만 적용해도 크기 ~55% 감소)
+
+---
+
 ## 우선순위 요약
 
 | # | 항목 | 파일 | 영향도 | 난이도 |
 |---|------|------|--------|--------|
 | 1 | MagicString 도입 | transform.ts | 높음 | 낮음 |
 | 2 | mousemove rAF throttle | runtime.ts | 높음 | 낮음 |
+| 9-1 | source map 제거 | tsup.config.ts | 높음 (용량) | 낮음 |
 | 3 | mousemove 결과 캐싱 | runtime.ts | 중간 | 낮음 |
 | 4 | Fiber 키 WeakMap 캐시 | runtime.ts | 중간 | 낮음 |
+| 9-2 | CJS/ESM 이중 빌드 | tsup.config.ts | 중간 (용량) | 중간 |
 | 5 | dedup Set 변경 | runtime.ts | 낮음~중간 | 낮음 |
 | 6 | appends 죽은 코드 제거 | transform.ts | 없음 | 낮음 |
 | 7 | normalizeSource regex 상수화 | runtime.ts | 낮음 | 낮음 |
