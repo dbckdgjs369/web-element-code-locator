@@ -525,7 +525,7 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
   const triggerKeyName = getTriggerKeyName(triggerKey);
   let triggerActive = triggerKey === "none";
   let rafId: number | null = null;
-  let lastLocateResult: { target: Element; result: LocatorResult } | null = null;
+  let lastLocateResult: { target: Element; mode: LocatorMode; result: LocatorResult } | null = null;
 
   const handleLocate = onLocate ?? ((result: LocatorResult) => {
     console.log(`[react-code-locator] ${result.source}`);
@@ -593,7 +593,7 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
         return;
       }
 
-      lastLocateResult = { target: elementTarget, result };
+      lastLocateResult = { target: elementTarget, mode: currentMode, result };
       highlight?.update(elementTarget, result.source);
     });
   };
@@ -611,7 +611,7 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
           : null;
 
     const result =
-      lastLocateResult?.target === elementTarget
+      lastLocateResult?.target === elementTarget && lastLocateResult.mode === currentMode
         ? lastLocateResult.result
         : locateComponentSource(event.target, currentMode, projectRoot);
 
@@ -638,7 +638,7 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
     if (elementTarget && isLocatorElement(elementTarget)) return;
 
     const result =
-      lastLocateResult?.target === elementTarget
+      lastLocateResult?.target === elementTarget && lastLocateResult.mode === currentMode
         ? lastLocateResult.result
         : locateComponentSource(event.target, currentMode, projectRoot);
 
