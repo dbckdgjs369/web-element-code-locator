@@ -24,7 +24,7 @@ export default defineConfig([
     entry: ["src/index.ts", "src/unplugin.ts", "src/openInEditorPlugin.ts"],
     platform: "node",
     clean: false,
-    noExternal: ["acorn", "acorn-jsx", "acorn-typescript", "estree-walker", "unplugin", "launch-editor"],
+    noExternal: ["acorn", "acorn-jsx", "acorn-typescript", "estree-walker", "unplugin"],
     esbuildOptions(options, context) {
       if (context.format === "esm") {
         options.banner = {
@@ -35,7 +35,7 @@ export default defineConfig([
         options.banner = {
           js: `var __importMetaUrl = require('url').pathToFileURL(__filename).href;`,
         };
-        options.define = { ...options.define, "import.meta.url": "__importMetaUrl" };
+        options.define = { ...options.define, "import.meta.url": "__importMetaUrl", "import.meta.dirname": "__dirname" };
       }
     },
   },

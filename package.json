@@ -42,7 +42,6 @@
     "acorn-jsx": "^5.3.2",
     "acorn-typescript": "^1.4.13",
     "estree-walker": "^3.0.3",
-    "launch-editor": "^2.13.2",
     "unplugin": "^3.0.0"
   },
   "devDependencies": {
