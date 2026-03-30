@@ -63,8 +63,15 @@ function isTriggerPressed(event: MouseEvent, triggerKey: TriggerKey) {
   return event.shiftKey;
 }
 
+const fiberKeyCache = new WeakMap<Element, string | undefined>();
+
 function getReactFiberKey(element: Element) {
-  return Object.keys(element).find((key) => key.startsWith("__reactFiber$") || key.startsWith("__reactInternalInstance$"));
+  if (fiberKeyCache.has(element)) return fiberKeyCache.get(element);
+  const key = Object.keys(element).find(
+    (k) => k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$"),
+  );
+  fiberKeyCache.set(element, key);
+  return key;
 }
 
 function getClosestReactFiber(target: Element | null) {
@@ -147,9 +154,11 @@ function getDirectDebugSource(fiber: ReactFiber | null) {
   return null;
 }
 
+const SOURCE_PATTERN = /^(.*):(\d+):(\d+)$/;
+
 function normalizeSource(source: string, projectRoot: string | undefined): string {
   if (!projectRoot || !source) return source;
-  const match = source.match(/^(.*):(\d+):(\d+)$/);
+  const match = source.match(SOURCE_PATTERN);
   if (!match) return source;
   const [, file, line, col] = match;
   const normalizedFile = file.replace(/\\/g, "/");
@@ -174,23 +183,27 @@ function resolveSourceCandidates(fiber: ReactFiber | null, projectRoot?: string)
   let current = fiber;
   const jsxCandidates: SourceCandidate[] = [];
   const componentCandidates: SourceCandidate[] = [];
+  const jsxSourceSet = new Set<string>();
+  const componentSourceSet = new Set<string>();
 
   while (current) {
     const rawJsxSource =
       getSourceFromProps(current.pendingProps) ?? getSourceFromProps(current.memoizedProps) ?? getDirectDebugSource(current);
     const jsxSource = normalizeSource(rawJsxSource ?? "", projectRoot) || rawJsxSource;
-    if (jsxSource) {
+    if (jsxSource && !jsxSourceSet.has(jsxSource)) {
       const file = getSourceFile(jsxSource);
-      if (file && !jsxCandidates.some((candidate) => candidate.source === jsxSource)) {
+      if (file) {
+        jsxSourceSet.add(jsxSource);
         jsxCandidates.push({ source: jsxSource, file });
       }
     }
 
     const rawComponentSource = getSourceFromType(current.type) ?? getSourceFromType(current.elementType);
     const componentSource = normalizeSource(rawComponentSource ?? "", projectRoot) || rawComponentSource;
-    if (componentSource) {
+    if (componentSource && !componentSourceSet.has(componentSource)) {
       const file = getSourceFile(componentSource);
-      if (file && !componentCandidates.some((candidate) => candidate.source === componentSource)) {
+      if (file) {
+        componentSourceSet.add(componentSource);
         componentCandidates.push({ source: componentSource, file });
       }
     }
@@ -258,10 +271,14 @@ export function locateComponentSource(target: EventTarget | null, mode: LocatorM
   };
 }
 
-const LOCATOR_ATTRS = ["data-react-code-locator", "data-react-code-locator-menu", "data-react-code-locator-highlight", "data-react-code-locator-label", "data-react-code-locator-toast"];
+const locatorElements = new WeakSet<Element>();
 
 function isLocatorElement(el: Element) {
-  return LOCATOR_ATTRS.some((attr) => el.hasAttribute(attr));
+  return locatorElements.has(el);
+}
+
+function registerLocatorElement(el: Element) {
+  locatorElements.add(el);
 }
 
 function getTriggerKeyName(triggerKey: TriggerKey): string | null {
@@ -298,6 +315,7 @@ function showToast(message: string, tone: "idle" | "success" = "idle") {
   });
 
   toast.textContent = message;
+  registerLocatorElement(toast);
   document.body.appendChild(toast);
 
   setTimeout(() => {
@@ -318,6 +336,7 @@ function createHighlightOverlay() {
   if (typeof document === "undefined") return null;
 
   const overlay = document.createElement("div");
+  registerLocatorElement(overlay);
   overlay.setAttribute("data-react-code-locator-highlight", "true");
   Object.assign(overlay.style, {
     position: "fixed",
@@ -331,6 +350,7 @@ function createHighlightOverlay() {
   });
 
   const label = document.createElement("div");
+  registerLocatorElement(label);
   label.setAttribute("data-react-code-locator-label", "true");
   Object.assign(label.style, {
     position: "fixed",
@@ -412,6 +432,7 @@ function createContextMenu() {
     dismiss();
 
     const menu = document.createElement("div");
+    registerLocatorElement(menu);
     menu.setAttribute("data-react-code-locator-menu", "true");
     Object.assign(menu.style, {
       position: "fixed",
@@ -503,6 +524,8 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
 
   const triggerKeyName = getTriggerKeyName(triggerKey);
   let triggerActive = triggerKey === "none";
+  let rafId: number | null = null;
+  let lastLocateResult: { target: Element; result: LocatorResult } | null = null;
 
   const handleLocate = onLocate ?? ((result: LocatorResult) => {
     console.log(`[react-code-locator] ${result.source}`);
@@ -536,12 +559,49 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
   const keyUpHandler = (event: KeyboardEvent) => {
     if (triggerKeyName && event.key === triggerKeyName) {
       triggerActive = false;
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
       highlight?.hide();
     }
   };
 
   const mouseMoveHandler = (event: MouseEvent) => {
     if (!triggerActive) return;
+    if (rafId !== null) return;
+
+    const target = event.target;
+    rafId = requestAnimationFrame(() => {
+      rafId = null;
+
+      const elementTarget =
+        target instanceof Element
+          ? target
+          : target instanceof Node
+            ? (target as Node).parentElement
+            : null;
+
+      if (!elementTarget || isLocatorElement(elementTarget)) {
+        highlight?.hide();
+        return;
+      }
+
+      const result = locateComponentSource(target, currentMode, projectRoot);
+      if (!result) {
+        highlight?.hide();
+        return;
+      }
+
+      lastLocateResult = { target: elementTarget, result };
+      highlight?.update(elementTarget, result.source);
+    });
+  };
+
+  const handler = (event: MouseEvent) => {
+    if (!isTriggerPressed(event, triggerKey)) {
+      return;
+    }
 
     const elementTarget =
       event.target instanceof Element
@@ -550,26 +610,11 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
           ? (event.target as Node).parentElement
           : null;
 
-    if (!elementTarget || isLocatorElement(elementTarget)) {
-      highlight?.hide();
-      return;
-    }
+    const result =
+      lastLocateResult?.target === elementTarget
+        ? lastLocateResult.result
+        : locateComponentSource(event.target, currentMode, projectRoot);
 
-    const result = locateComponentSource(event.target, currentMode, projectRoot);
-    if (!result) {
-      highlight?.hide();
-      return;
-    }
-
-    highlight?.update(elementTarget, result.source);
-  };
-
-  const handler = (event: MouseEvent) => {
-    if (!isTriggerPressed(event, triggerKey)) {
-      return;
-    }
-
-    const result = locateComponentSource(event.target, currentMode, projectRoot);
     if (!result) {
       handleError(new Error("No React component source metadata found for clicked element."));
       return;
@@ -592,7 +637,11 @@ export function enableReactComponentJump(options: LocatorOptions = {}) {
 
     if (elementTarget && isLocatorElement(elementTarget)) return;
 
-    const result = locateComponentSource(event.target, currentMode, projectRoot);
+    const result =
+      lastLocateResult?.target === elementTarget
+        ? lastLocateResult.result
+        : locateComponentSource(event.target, currentMode, projectRoot);
+
     if (!result) return;
 
     event.preventDefault();

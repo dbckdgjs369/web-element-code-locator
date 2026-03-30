@@ -4,7 +4,7 @@ const common = {
   format: ["esm", "cjs"] as ["esm", "cjs"],
   dts: true,
   splitting: false,
-  sourcemap: true,
+  sourcemap: false,
   target: "es2022" as const,
   minify: true,
 };
@@ -18,13 +18,13 @@ export default defineConfig([
     clean: true,
   },
   // Node.js side (build plugins, middleware)
-  // ESM output needs createRequire shim for bundled CJS dependencies (launch-editor)
+  // ESM output needs createRequire shim for bundled CJS dependencies
   {
     ...common,
     entry: ["src/index.ts", "src/unplugin.ts", "src/openInEditorPlugin.ts"],
     platform: "node",
     clean: false,
-    noExternal: ["acorn", "acorn-jsx", "acorn-typescript", "estree-walker", "unplugin"],
+    noExternal: ["acorn", "acorn-jsx", "acorn-typescript", "estree-walker", "unplugin", "magic-string"],
     esbuildOptions(options, context) {
       if (context.format === "esm") {
         options.banner = {

@@ -10,6 +10,7 @@ import * as acorn from "acorn";
 import acornJsx from "acorn-jsx";
 import acornTs from "acorn-typescript";
 import { walk } from "estree-walker";
+import MagicString from "magic-string";
 import type { Node, Program, CallExpression, MemberExpression, Identifier } from "estree";
 import { SOURCE_PROP, JSX_SOURCE_PROP } from "../constants";
 
@@ -86,10 +87,7 @@ export function transformSource(
     return null;
   }
 
-  // Collect (position, text) pairs for string insertion
   const insertions: Array<{ at: number; text: string }> = [];
-  // Collect appends for __componentSourceLoc assignments
-  const appends: string[] = [];
 
   const seenComponents = new Set<string>();
   const parentStack: any[] = [];
@@ -154,7 +152,6 @@ export function transformSource(
             if (loc) {
               seenComponents.add(id.name);
               const sourceValue = toRelativeSource(filename, loc.start, projectRoot);
-              // Use grandparent.end (ExportNamedDeclaration) or parent.end (VariableDeclaration)
               const insertAfter: number | undefined =
                 grandparent?.type === "ExportNamedDeclaration" ||
                 grandparent?.type === "ExportDefaultDeclaration"
@@ -175,18 +172,12 @@ export function transformSource(
     },
   });
 
-  if (insertions.length === 0 && appends.length === 0) return null;
+  if (insertions.length === 0) return null;
 
-  // Apply insertions in reverse order so earlier positions stay valid
-  insertions.sort((a, b) => b.at - a.at);
-  let result = code;
+  const s = new MagicString(code);
   for (const { at, text } of insertions) {
-    result = result.slice(0, at) + text + result.slice(at);
+    s.appendLeft(at, text);
   }
 
-  if (appends.length > 0) {
-    result += appends.join("");
-  }
-
-  return { code: result };
+  return { code: s.toString(), map: s.generateMap({ hires: true }) };
 }
