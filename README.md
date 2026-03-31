@@ -114,7 +114,7 @@ vitePlugin({
   // injectClient: false — disables auto injection; call enableReactComponentJump() manually.
   injectClient: true,
 
-  editor: "code",                // Editor command (default: EDITOR env var → auto-detect running editor)
+  editor: "code",                // Editor to open files in (default: "code"). See supported editors below.
 
   locator: {                     // Runtime options (injected automatically when injectClient: true)
     triggerKey: "shift",         // Trigger key: "alt" | "meta" | "ctrl" | "shift" | "none" (default: "shift")
@@ -134,12 +134,21 @@ Hold the trigger key (default: `Shift`) and hover over an element. The element w
 
 ### Right-Click Context Menu
 
-Hold the trigger key and **right-click** an element to open the context menu.
+Hold the trigger key and **right-click** any element to open the context menu.
+
+```
+┌─────────────────────────────────┐
+│  Open in editor                 │  ← openInEditor: true 일 때 표시
+│  Copy path                      │
+└─────────────────────────────────┘
+```
 
 | Item | Action |
 |------|--------|
-| Open in editor | Opens the source file in your editor (shown when `openInEditor: true`) |
-| Copy path | Copies the source path to the clipboard |
+| Open in editor | Opens the source file in your editor and jumps to the exact line (shown when `openInEditor: true`) |
+| Copy path | Copies the source path in `file:line:col` format to the clipboard |
+
+> The browser's default context menu is automatically suppressed.
 
 ### Keyboard Shortcuts
 
@@ -155,10 +164,12 @@ Set `openInEditor: true` to show the "Open in editor" option in the right-click 
 
 ### Vite
 
+The `/__open-in-editor` endpoint is automatically registered by `vitePlugin`. No extra setup needed.
+
 ```ts
 // vite.config.ts
 vitePlugin({
-  editor: "code",   // VS Code CLI command
+  editor: "code",   // editor command (default: "code")
   locator: {
     openInEditor: true,
   },
@@ -167,7 +178,7 @@ vitePlugin({
 
 ### Webpack / Rspack
 
-You need to add `openInEditorMiddleware` to your devServer.
+Add `openInEditorMiddleware` to your devServer and pass the editor command.
 
 ```js
 // webpack.config.js
@@ -180,7 +191,7 @@ module.exports = {
       middlewares.unshift({
         name: "open-in-editor",
         path: "/__open-in-editor",
-        middleware: openInEditorMiddleware(),
+        middleware: openInEditorMiddleware("code"),  // pass your editor command
       });
       return middlewares;
     },
@@ -195,13 +206,27 @@ import { enableReactComponentJump } from "react-code-locator";
 enableReactComponentJump({ openInEditor: true });
 ```
 
-The editor is determined by the `EDITOR` environment variable. If not set, the currently running editor is auto-detected.
+### Supported Editors
 
-```bash
-EDITOR=code npm run dev       # VS Code
-EDITOR=webstorm npm run dev
-EDITOR=cursor npm run dev
-```
+| Editor | Command |
+|--------|---------|
+| VS Code | `"code"` |
+| VS Code Insiders | `"code-insiders"` |
+| Cursor | `"cursor"` |
+| VSCodium | `"codium"` / `"vscodium"` |
+| WebStorm | `"webstorm"` |
+| IntelliJ IDEA | `"idea"` |
+| GoLand | `"goland"` |
+| PyCharm | `"pycharm"` |
+| PhpStorm | `"phpstorm"` |
+| RubyMine | `"rubymine"` |
+| CLion | `"clion"` |
+| Rider | `"rider"` |
+| Zed | `"zed"` |
+| Sublime Text | `"subl"` |
+| Atom | `"atom"` |
+| Vim | `"vim"` |
+| Emacs | `"emacs"` |
 
 ## Manual Setup
 
