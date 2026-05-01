@@ -102,8 +102,12 @@ export function transformSource(
       if (injectJsxSource && isJsx && node.type === "JSXElement") {
         if (node.loc) {
           const sourceValue = toRelativeSource(filename, node.loc.start, projectRoot);
-          insertions.push({ at: node.start, text: `__rcl(`, mode: "prepend" });
-          insertions.push({ at: node.end, text: `, "${sourceValue}")` });
+          // Direct JSX children need {__rcl(...)} — otherwise the text `__rcl(` becomes a DOM text node
+          const inJsxContext = parent?.type === "JSXElement" || parent?.type === "JSXFragment";
+          const open = inJsxContext ? `{__rcl(` : `__rcl(`;
+          const close = inJsxContext ? `, "${sourceValue}")}` : `, "${sourceValue}")`;
+          insertions.push({ at: node.start, text: open, mode: "prepend" });
+          insertions.push({ at: node.end, text: close });
           needsJsxHelper = true;
         }
       }
