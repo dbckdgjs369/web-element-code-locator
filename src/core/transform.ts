@@ -12,7 +12,7 @@ import acornTs from "acorn-typescript";
 import { walk } from "estree-walker";
 import MagicString from "magic-string";
 import type { Node, Program, CallExpression, MemberExpression, Identifier } from "estree";
-import { SOURCE_PROP, JSX_SOURCE_PROP } from "../constants";
+import { SOURCE_PROP, JSX_SOURCE_REGISTRY_SYMBOL } from "../constants";
 
 // .tsx/.jsx: TypeScript plugin must come before JSX plugin
 const ParserTSX = acorn.Parser.extend(acornTs() as any, acornJsx());
@@ -87,7 +87,8 @@ export function transformSource(
     return null;
   }
 
-  const insertions: Array<{ at: number; text: string }> = [];
+  const insertions: Array<{ at: number; text: string; mode?: "prepend" }> = [];
+  let needsJsxHelper = false;
 
   const seenComponents = new Set<string>();
   const parentStack: any[] = [];
@@ -97,18 +98,13 @@ export function transformSource(
       const parent = parentStack[parentStack.length - 1] ?? null;
       const grandparent = parentStack[parentStack.length - 2] ?? null;
 
-      // Inject $componentSourceLoc as JSX attribute on all JSX elements
+      // Wrap JSX elements with __rcl() to register source in WeakMap without polluting props
       if (injectJsxSource && isJsx && node.type === "JSXElement") {
-        const opening = node.openingElement;
-        const name = opening.name;
-        if (node.loc && name.end !== undefined) {
-          const alreadyHasAttr = opening.attributes.some(
-            (attr: any) => attr.type === "JSXAttribute" && attr.name?.name === JSX_SOURCE_PROP,
-          );
-          if (!alreadyHasAttr) {
-            const sourceValue = toRelativeSource(filename, node.loc.start, projectRoot);
-            insertions.push({ at: name.end, text: ` ${JSX_SOURCE_PROP}="${sourceValue}"` });
-          }
+        if (node.loc) {
+          const sourceValue = toRelativeSource(filename, node.loc.start, projectRoot);
+          insertions.push({ at: node.start, text: `__rcl(`, mode: "prepend" });
+          insertions.push({ at: node.end, text: `, "${sourceValue}")` });
+          needsJsxHelper = true;
         }
       }
 
@@ -172,11 +168,26 @@ export function transformSource(
     },
   });
 
+  if (needsJsxHelper) {
+    let helperPos = 0;
+    for (const n of ast.body) {
+      if (n.type === "ImportDeclaration") helperPos = (n as any).end;
+    }
+    insertions.push({
+      at: helperPos,
+      text: `\nvar __rcl_r=(globalThis[Symbol.for("${JSX_SOURCE_REGISTRY_SYMBOL}")]||(globalThis[Symbol.for("${JSX_SOURCE_REGISTRY_SYMBOL}")]=new WeakMap()));function __rcl(e,s){if(e&&e.props)__rcl_r.set(e.props,s);return e;}\n`,
+    });
+  }
+
   if (insertions.length === 0) return null;
 
   const s = new MagicString(code);
-  for (const { at, text } of insertions) {
-    s.appendLeft(at, text);
+  for (const { at, text, mode } of insertions) {
+    if (mode === "prepend") {
+      s.prependLeft(at, text);
+    } else {
+      s.appendLeft(at, text);
+    }
   }
 
   return { code: s.toString(), map: s.generateMap({ hires: true }) };
