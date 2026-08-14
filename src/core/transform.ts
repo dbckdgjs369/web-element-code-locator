@@ -1,26 +1,53 @@
 /**
- * Source transform using acorn + acorn-typescript + acorn-jsx
+ * Source transform using @babel/parser
  * Pure JS, fully bundlable, no native bindings required
+ *
+ * @babel/parser tracks the TypeScript spec release-for-release, so newer syntax
+ * (`satisfies`, const type parameters, decorators) parses without us chasing it.
+ * Its only dependency is @babel/types; both are bundled into dist, so this stays
+ * a zero-dependency package and never touches the host project's toolchain.
  *
  * Strategy: parse AST to find positions, then inject via string manipulation
  * (no code regeneration — preserves original TypeScript/JSX exactly)
  */
 
-import * as acorn from "acorn";
-import acornJsx from "acorn-jsx";
-import acornTs from "acorn-typescript";
+import { parse as babelParse, type ParserPlugin } from "@babel/parser";
 import { walk } from "estree-walker";
 import MagicString from "magic-string";
 import type { Node, Program, CallExpression, MemberExpression, Identifier } from "estree";
 import { SOURCE_PROP, JSX_SOURCE_REGISTRY_SYMBOL } from "../constants";
 
-// .tsx/.jsx: TypeScript plugin must come before JSX plugin
-const ParserTSX = acorn.Parser.extend(acornTs() as any, acornJsx());
-// .ts/.js: no JSX plugin (avoids <T,> generic arrow function ambiguity)
-const ParserTS = acorn.Parser.extend(acornTs() as any);
+// Proposal syntax that ships in real TS codebases but sits behind a Babel plugin.
+// `decorators-legacy` matches TS's `experimentalDecorators`, which is what almost
+// every decorator-using project (MobX, InversifyJS, class-validator) compiles with.
+const PROPOSAL_PLUGINS: ParserPlugin[] = [
+  "explicitResourceManagement",
+  "importAttributes",
+  "decorators-legacy",
+  "decoratorAutoAccessors",
+];
 
-function getParser(filename: string) {
-  return /\.[jt]sx$/.test(filename) ? ParserTSX : ParserTS;
+// .tsx/.jsx get the JSX plugin; .ts/.js must not (it would misparse `<T,>` generic arrows).
+const PLUGINS_TSX: ParserPlugin[] = ["typescript", "jsx", ...PROPOSAL_PLUGINS];
+const PLUGINS_TS: ParserPlugin[] = ["typescript", ...PROPOSAL_PLUGINS];
+
+function getParserPlugins(filename: string): ParserPlugin[] {
+  return /\.[jt]sx$/.test(filename) ? PLUGINS_TSX : PLUGINS_TS;
+}
+
+// A parse failure skips the whole file, and a skipped file looks exactly like a
+// file with no components — so without this the user has no way to tell the
+// plugin gave up. Warn once per file.
+const warnedFiles = new Set<string>();
+
+function warnParseFailure(filename: string, error: unknown) {
+  if (warnedFiles.has(filename)) return;
+  warnedFiles.add(filename);
+  const reason = error instanceof Error ? error.message : String(error);
+  console.warn(
+    `[react-code-locator] Skipped "${filename}" — could not parse it, so components in this ` +
+      `file will not be locatable. Reason: ${reason}`,
+  );
 }
 
 export interface TransformOptions {
@@ -78,12 +105,12 @@ export function transformSource(
 
   let ast: Program;
   try {
-    ast = getParser(filename).parse(code, {
-      ecmaVersion: "latest",
+    ast = babelParse(code, {
       sourceType: "module",
-      locations: true,
-    }) as unknown as Program;
-  } catch {
+      plugins: getParserPlugins(filename),
+    }).program as unknown as Program;
+  } catch (error) {
+    warnParseFailure(filename, error);
     return null;
   }
 
