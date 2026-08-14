@@ -47,6 +47,24 @@ module.exports = {
 };
 ```
 
+> **Webpack mode only — Turbopack is not supported.**
+> Under Turbopack, Next.js never calls the `webpack()` hook in `next.config.js`, so
+> the plugin is **never loaded and never runs**. There is no error and no warning —
+> the app boots normally and clicking simply does nothing. If locating stops working
+> after a Next.js upgrade, this is almost certainly why: Turbopack became the default
+> bundler in Next.js 16, and was opt-in via `--turbopack` in Next.js 15.
+>
+> Run the dev server in webpack mode instead:
+>
+> ```bash
+> next dev --webpack   # Next.js 16+: opt back out of Turbopack
+> next dev             # Next.js 15 and below: webpack is already the default
+> ```
+>
+> The cause is upstream: `unplugin` ships vite, rollup, webpack, rspack and esbuild
+> adapters, but no Turbopack adapter, because Turbopack has no public plugin API for
+> source transforms yet. Support will land here once one exists.
+
 ### Create React App
 
 ```js
@@ -255,11 +273,34 @@ enableReactComponentJump({
 });
 ```
 
+## What Gets Detected
+
+Every JSX element gets its source location registered, so clicking any rendered
+markup resolves. On top of that, these component declaration forms are annotated
+with their definition site (used by implementation mode, `Alt+2`):
+
+| Form | Example |
+| --- | --- |
+| Function declaration | `function Card() {}` |
+| Arrow / function expression | `const Card = () => {}` |
+| Class component | `class Card extends React.Component {}` |
+| `memo` / `forwardRef` | `const Card = memo(...)` |
+| Any HOC call | `const Card = withAuth(Base)` |
+| Tagged template | ``const Card = styled(Base)`...` `` |
+| Nested (non-top-level) | `function Outer() { const Row = () => {} }` |
+
+Detection keys off the capitalized-name convention: only identifiers starting with
+an uppercase letter are treated as components. Classes are only annotated when they
+extend a base class, so plain data classes are left alone.
+
+File types: `.tsx`, `.jsx`, `.js` and `.ts`. JSX wrapping runs on everything except
+`.ts` (which cannot contain JSX, and where the JSX parser would misread `<T,>`
+generic arrow functions).
+
 ## Known Limitations
 
 - **React Native not supported**: Relies on the DOM API.
-- **Turbopack not supported**: Turbopack in Next.js 13+ is not currently supported.
-- **TSX generic arrow functions**: Files containing generic arrow functions in the form `<T,>` in `.tsx` files will be skipped during transform. (`function` declarations and `.ts` files work fine.)
+- **Turbopack not supported**: Turbopack has no public plugin API for source transforms, and `unplugin` has no Turbopack adapter as a result. Under Turbopack the plugin is never loaded and fails silently — see the [Next.js section](#nextjs-webpack) for the `--webpack` workaround.
 - **Disabled elements / blocked pointer-events**: Elements with a `disabled` attribute or `pointer-events: none` applied will not fire click events and cannot be detected.
 - **CRA (Create React App)**: The webpack config is hidden, so plugin injection requires `react-app-rewired` or `craco`.
 - **Dev only**: The plugin's `enabled` option defaults to `NODE_ENV === "development"`, so it is automatically disabled in production builds.
