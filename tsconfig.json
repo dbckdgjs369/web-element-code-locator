@@ -14,7 +14,10 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
+    // The specs import source directly (`../src/core/transform.ts`) so esbuild can
+    // bundle them without a build step.
+    "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["src", "tsup.config.ts"]
+  "include": ["src", "test", "tsup.config.ts"]
 }

@@ -35,7 +35,10 @@
     "release:minor": "npm version minor && npm run build && npm publish --access public --otp=$npm_config_otp",
     "release:major": "npm version major && npm run build && npm publish --access public --otp=$npm_config_otp",
     "prepublishOnly": "npm run build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:transform && npm run test:runtime",
+    "test:transform": "esbuild test/transform.spec.mts --bundle --platform=node --format=esm --outfile=node_modules/.cache/rcl-transform-spec.mjs --log-level=error && node node_modules/.cache/rcl-transform-spec.mjs",
+    "test:runtime": "esbuild test/runtime.spec.mts --bundle --platform=node --format=esm --outfile=node_modules/.cache/rcl-runtime-spec.mjs --log-level=error && node node_modules/.cache/rcl-runtime-spec.mjs"
   },
   "devDependencies": {
     "@babel/parser": "^7.29.8",
