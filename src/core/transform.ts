@@ -14,8 +14,13 @@
 import { parse as babelParse, type ParserPlugin } from "@babel/parser";
 import { walk } from "estree-walker";
 import MagicString from "magic-string";
-import type { Node, Program, CallExpression, MemberExpression, Identifier } from "estree";
+import type { Node, Program } from "estree";
 import { SOURCE_PROP, JSX_SOURCE_REGISTRY_SYMBOL } from "../constants";
+
+// JSX-capable extensions. `.ts` is intentionally excluded: it can't contain JSX
+// and the JSX plugin would misparse `<T,>` generic arrow functions there.
+// `.js` IS included — CRA and plenty of older projects put JSX in plain .js files.
+const JSX_FILE_RE = /\.(jsx?|tsx)$/;
 
 // Proposal syntax that ships in real TS codebases but sits behind a Babel plugin.
 // `decorators-legacy` matches TS's `experimentalDecorators`, which is what almost
@@ -27,12 +32,12 @@ const PROPOSAL_PLUGINS: ParserPlugin[] = [
   "decoratorAutoAccessors",
 ];
 
-// .tsx/.jsx get the JSX plugin; .ts/.js must not (it would misparse `<T,>` generic arrows).
+// .tsx/.jsx/.js get the JSX plugin; .ts must not (it would misparse `<T,>` generic arrows).
 const PLUGINS_TSX: ParserPlugin[] = ["typescript", "jsx", ...PROPOSAL_PLUGINS];
 const PLUGINS_TS: ParserPlugin[] = ["typescript", ...PROPOSAL_PLUGINS];
 
 function getParserPlugins(filename: string): ParserPlugin[] {
-  return /\.[jt]sx$/.test(filename) ? PLUGINS_TSX : PLUGINS_TS;
+  return JSX_FILE_RE.test(filename) ? PLUGINS_TSX : PLUGINS_TS;
 }
 
 // A parse failure skips the whole file, and a skipped file looks exactly like a
@@ -72,22 +77,61 @@ function isComponentName(name: string): boolean {
   return /^[A-Z]/.test(name);
 }
 
-function isSupportedComponentInit(node: Node | null): boolean {
-  if (!node) return false;
-  if (node.type === "ArrowFunctionExpression" || node.type === "FunctionExpression") return true;
-  if (node.type !== "CallExpression") return false;
-  const callee = (node as CallExpression).callee;
-  if (callee.type === "Identifier") {
-    return ["memo", "forwardRef"].includes((callee as Identifier).name);
+// "direct"  -> init is literally a function/class expression; the value is guaranteed
+//              to be an object/function, so the source assignment can be unguarded.
+// "wrapped" -> init is a call (memo/forwardRef/connect/observer/withX/...) or a
+//              styled`...` tagged template. The result is almost always a component,
+//              but could be a primitive, so the assignment is type-guarded.
+//              Allow-listing HOC names was the old approach and it missed every
+//              project-local HOC, so any call is accepted and the guard absorbs the risk.
+// null      -> not a component-producing initializer.
+type ComponentInitKind = "direct" | "wrapped" | null;
+
+function classifyComponentInit(node: Node | null | undefined): ComponentInitKind {
+  if (!node) return null;
+  if (
+    node.type === "ArrowFunctionExpression" ||
+    node.type === "FunctionExpression" ||
+    node.type === "ClassExpression"
+  ) {
+    return "direct";
   }
-  if (callee.type === "MemberExpression") {
-    const obj = (callee as MemberExpression).object;
-    const prop = (callee as MemberExpression).property;
-    if (obj.type === "Identifier" && (obj as Identifier).name === "React" && prop.type === "Identifier") {
-      return ["memo", "forwardRef"].includes((prop as Identifier).name);
-    }
+  if (node.type === "CallExpression" || node.type === "TaggedTemplateExpression") {
+    return "wrapped";
   }
-  return false;
+  return null;
+}
+
+// A class counts as a component only if it extends a base class (React.Component /
+// PureComponent / a project base class). Keeps plain uppercase data classes out.
+function looksLikeComponentClass(node: any): boolean {
+  return Boolean(node?.superClass);
+}
+
+// Statement contexts where inserting `Name.__componentSourceLoc = "..."` right after
+// the declaration is syntactically valid. BlockStatement is what lets components
+// declared inside another function (a very common pattern) be picked up too.
+function isStatementContext(node: any): boolean {
+  return (
+    node?.type === "Program" ||
+    node?.type === "BlockStatement" ||
+    node?.type === "ExportNamedDeclaration" ||
+    node?.type === "ExportDefaultDeclaration"
+  );
+}
+
+function isExportWrapper(node: any): boolean {
+  return (
+    node?.type === "ExportNamedDeclaration" || node?.type === "ExportDefaultDeclaration"
+  );
+}
+
+function buildAssignment(name: string, sourceValue: string, guarded: boolean): string {
+  if (guarded) {
+    // Short-circuits (never throws) when the value turned out to be a primitive/null.
+    return `\n${name} && (typeof ${name} === "object" || typeof ${name} === "function") && (${name}.${SOURCE_PROP} = "${sourceValue}");`;
+  }
+  return `\n${name}.${SOURCE_PROP} = "${sourceValue}";`;
 }
 
 export function transformSource(
@@ -101,7 +145,7 @@ export function transformSource(
     injectComponentSource = true,
   } = options;
 
-  const isJsx = /\.[jt]sx$/.test(filename);
+  const isJsx = JSX_FILE_RE.test(filename);
 
   let ast: Program;
   try {
@@ -117,7 +161,9 @@ export function transformSource(
   const insertions: Array<{ at: number; text: string; mode?: "prepend" }> = [];
   let needsJsxHelper = false;
 
-  const seenComponents = new Set<string>();
+  // Dedupe by declaration position rather than by name, so same-named components in
+  // different scopes (e.g. a nested `Row` and a top-level `Row`) are both annotated.
+  const seenComponents = new Set<number>();
   const parentStack: any[] = [];
 
   walk(ast as any, {
@@ -139,53 +185,74 @@ export function transformSource(
         }
       }
 
-      // Inject __componentSourceLoc on function declarations
+      // Inject __componentSourceLoc on function declarations (top-level or nested)
       if (injectComponentSource && node.type === "FunctionDeclaration") {
         const name = node.id?.name;
-        const isTopLevel =
-          parent?.type === "Program" ||
-          parent?.type === "ExportNamedDeclaration" ||
-          parent?.type === "ExportDefaultDeclaration";
-        if (name && isComponentName(name) && isTopLevel && !seenComponents.has(name) && node.loc) {
-          seenComponents.add(name);
+        if (
+          name &&
+          isComponentName(name) &&
+          isStatementContext(parent) &&
+          !seenComponents.has(node.start) &&
+          node.loc
+        ) {
+          seenComponents.add(node.start);
           const sourceValue = toRelativeSource(filename, node.loc.start, projectRoot);
-          const insertAfter: number | undefined =
-            parent?.type === "ExportNamedDeclaration" || parent?.type === "ExportDefaultDeclaration"
-              ? parent.end
-              : node.end;
+          const insertAfter: number | undefined = isExportWrapper(parent) ? parent.end : node.end;
           if (insertAfter !== undefined) {
-            insertions.push({ at: insertAfter, text: `\n${name}.${SOURCE_PROP} = "${sourceValue}";` });
+            insertions.push({ at: insertAfter, text: buildAssignment(name, sourceValue, false) });
           }
         }
       }
 
-      // Inject __componentSourceLoc on variable component declarations
+      // Inject __componentSourceLoc on class components (top-level or nested)
+      if (injectComponentSource && node.type === "ClassDeclaration") {
+        const name = node.id?.name;
+        if (
+          name &&
+          isComponentName(name) &&
+          isStatementContext(parent) &&
+          looksLikeComponentClass(node) &&
+          !seenComponents.has(node.start) &&
+          node.loc
+        ) {
+          seenComponents.add(node.start);
+          const sourceValue = toRelativeSource(filename, node.loc.start, projectRoot);
+          const insertAfter: number | undefined = isExportWrapper(parent) ? parent.end : node.end;
+          if (insertAfter !== undefined) {
+            insertions.push({ at: insertAfter, text: buildAssignment(name, sourceValue, false) });
+          }
+        }
+      }
+
+      // Inject __componentSourceLoc on variable component declarations.
+      // Covers arrow/function/class expressions ("direct") and HOC/styled wrappers
+      // ("wrapped"), at top level or nested inside a block.
       if (injectComponentSource && node.type === "VariableDeclarator") {
         const id = node.id;
-        const isTopLevel =
-          parent?.type === "VariableDeclaration" &&
-          (grandparent?.type === "Program" ||
-            grandparent?.type === "ExportNamedDeclaration" ||
-            grandparent?.type === "ExportDefaultDeclaration");
+        const declaration = parent; // VariableDeclaration
+        const declContext = grandparent; // Program / BlockStatement / Export...
+        const inStatementContext =
+          declaration?.type === "VariableDeclaration" && isStatementContext(declContext);
         if (
           id.type === "Identifier" &&
           isComponentName(id.name) &&
-          isTopLevel &&
-          !seenComponents.has(id.name)
+          inStatementContext &&
+          !seenComponents.has(node.start)
         ) {
-          const init = node.init;
-          if (init && isSupportedComponentInit(init)) {
-            const loc = node.loc || init.loc;
+          const kind = classifyComponentInit(node.init);
+          if (kind) {
+            const loc = node.loc || node.init.loc;
             if (loc) {
-              seenComponents.add(id.name);
+              seenComponents.add(node.start);
               const sourceValue = toRelativeSource(filename, loc.start, projectRoot);
-              const insertAfter: number | undefined =
-                grandparent?.type === "ExportNamedDeclaration" ||
-                grandparent?.type === "ExportDefaultDeclaration"
-                  ? grandparent.end
-                  : parent?.end;
+              const insertAfter: number | undefined = isExportWrapper(declContext)
+                ? declContext.end
+                : declaration?.end;
               if (insertAfter !== undefined) {
-                insertions.push({ at: insertAfter, text: `\n${id.name}.${SOURCE_PROP} = "${sourceValue}";` });
+                insertions.push({
+                  at: insertAfter,
+                  text: buildAssignment(id.name, sourceValue, kind === "wrapped"),
+                });
               }
             }
           }

@@ -62,7 +62,10 @@ export interface ViteReactCodeLocatorOptions extends ReactCodeLocatorOptions {
 
 export type { TransformOptions };
 
-const DEFAULT_INCLUDE = /\.([jt]sx)$/;
+// `.js`/`.jsx`/`.tsx` — CRA and older projects keep JSX in plain `.js` files.
+// `.ts` is excluded: it can't hold JSX, and enabling the JSX plugin there would
+// misparse `<T,>` generic arrow functions.
+const DEFAULT_INCLUDE = /\.(jsx?|tsx)$/;
 const DEFAULT_EXCLUDE = /node_modules/;
 
 function shouldTransform(id: string, include: RegExp | RegExp[], exclude: RegExp | RegExp[]): boolean {

@@ -188,6 +188,128 @@ export const Store = () => ({ a: 1 });`,
 );
 
 // ===========================================================================
+// C: component-detection coverage beyond plain top-level function/arrow decls.
+// Each of these used to be silently missed — the component simply wasn't locatable.
+// ===========================================================================
+
+// C1: class component
+run(
+  "C1: class component gets component-source",
+  `import React from "react";
+export class Panel extends React.Component {
+  render() { return <div>panel</div>; }
+}`,
+  "Panel.tsx",
+  (out) => hasComponentSource(out, "Panel"),
+);
+
+// C2: a plain (non-extending) uppercase class is data, not a component
+run(
+  "C2: plain class without a base class is not annotated",
+  `export class UserModel { name = "x"; }
+export function App() { return <div>hi</div>; }`,
+  "App.tsx",
+  (out) => {
+    lacksComponentSource(out, "UserModel");
+    hasComponentSource(out, "App");
+  },
+);
+
+// C3: styled-components / tagged template
+run(
+  "C3: styled(Base)`...` component gets component-source",
+  `import styled from "styled-components";
+const Base = (p: any) => <div {...p} />;
+export const FancyBox = styled(Base)\`color: red;\`;`,
+  "FancyBox.tsx",
+  (out) => {
+    hasComponentSource(out, "FancyBox");
+    hasComponentSource(out, "Base");
+  },
+);
+
+// C4: project-local HOC — name allow-listing could never have covered this
+run(
+  "C4: withX(Comp) HOC component gets component-source",
+  `const withAuth = (C: any) => (p: any) => <C {...p} />;
+function Inner() { return <div>inner</div>; }
+export const Guarded = withAuth(Inner);`,
+  "Guarded.tsx",
+  (out) => hasComponentSource(out, "Guarded"),
+);
+
+// C5: HOC results are type-guarded — the call could have returned a primitive
+run(
+  "C5: wrapped (call/template) init assignment is type-guarded",
+  `export const Guarded = someCall();`,
+  "Guarded.tsx",
+  (out) => {
+    if (!out.includes(`typeof Guarded === "function"`)) {
+      throw new Error("expected a typeof guard around the wrapped-init assignment");
+    }
+  },
+);
+
+// C6: component defined inside another function (not top-level)
+run(
+  "C6: nested (non-top-level) component gets component-source",
+  `export function Outer() {
+  const Row = () => <li>row</li>;
+  return <ul><Row /></ul>;
+}`,
+  "Outer.tsx",
+  (out) => {
+    hasComponentSource(out, "Row");
+    hasComponentSource(out, "Outer");
+  },
+);
+
+// C7: nested function declaration inside a block
+run(
+  "C7: nested function declaration gets component-source",
+  `export function Outer() {
+  function Row() { return <li>row</li>; }
+  return <ul><Row /></ul>;
+}`,
+  "Outer.tsx",
+  (out) => hasComponentSource(out, "Row"),
+);
+
+// C8: same name in two scopes — dedupe must be positional, not by name
+run(
+  "C8: same-named components in different scopes are both annotated",
+  `const Row = () => <li>top</li>;
+export function Outer() {
+  const Row = () => <li>nested</li>;
+  return <ul><Row /></ul>;
+}`,
+  "Outer.tsx",
+  (out) => {
+    const n = (out.match(/Row\.__componentSourceLoc/g) ?? []).length;
+    if (n !== 2) throw new Error(`expected 2 Row annotations (top-level + nested), got ${n}`);
+  },
+);
+
+// C9: JSX inside a plain .js file (CRA and older projects)
+run(
+  "C9: .js file with JSX gets both component-source and JSX wrapping",
+  `export function App() { return <div><span>hi</span></div>; }`,
+  "App.js",
+  (out) => {
+    hasComponentSource(out, "App");
+    hasJsx(out, 2);
+  },
+);
+
+// C10: default-exported declarations insert after the whole export statement
+run(
+  "C10: export default function gets component-source",
+  `export default function App() { return <div>hi</div>; }`,
+  "App.tsx",
+  (out) => hasComponentSource(out, "App"),
+);
+
+// ===========================================================================
 // S: modern TS syntax the parser must not choke on
 //
 // A parse failure skips the WHOLE file silently, so one unsupported operator
