@@ -127,11 +127,16 @@ function isExportWrapper(node: any): boolean {
 }
 
 function buildAssignment(name: string, sourceValue: string, guarded: boolean): string {
+  // Object.isExtensible is the important part: frozen / sealed values (design-system
+  // exports, Object.freeze'd components, svgr output, some HOC results) would otherwise
+  // throw "Cannot add property __componentSourceLoc, object is not extensible" —
+  // ESM is strict mode, so a failed assignment is fatal and takes the whole app down.
+  // Locating a component is a convenience; it must never break the host app.
   if (guarded) {
-    // Short-circuits (never throws) when the value turned out to be a primitive/null.
-    return `\n${name} && (typeof ${name} === "object" || typeof ${name} === "function") && (${name}.${SOURCE_PROP} = "${sourceValue}");`;
+    // Also short-circuits when the value turned out to be a primitive/null.
+    return `\n${name} && (typeof ${name} === "object" || typeof ${name} === "function") && Object.isExtensible(${name}) && (${name}.${SOURCE_PROP} = "${sourceValue}");`;
   }
-  return `\n${name}.${SOURCE_PROP} = "${sourceValue}";`;
+  return `\nObject.isExtensible(${name}) && (${name}.${SOURCE_PROP} = "${sourceValue}");`;
 }
 
 export function transformSource(

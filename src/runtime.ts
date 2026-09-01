@@ -212,11 +212,19 @@ function resolveSourceCandidates(fiber: ReactFiber | null, projectRoot?: string)
   }
 
   const nearestProjectLocalComponentFile = componentCandidates.find((candidate) => isProjectLocalSource(candidate.source))?.file;
+  const nearestProjectLocalJsxCandidate = jsxCandidates.find((candidate) => isProjectLocalSource(candidate.source));
   let screen: string | null = null;
   if (nearestProjectLocalComponentFile) {
     const matchingJsxCandidate = jsxCandidates.find((candidate) => candidate.file === nearestProjectLocalComponentFile);
     if (matchingJsxCandidate) {
+      // 흔한 경우: 컴포넌트 정의와 그 JSX 가 같은 파일에 있다.
       screen = matchingJsxCandidate.source;
+    } else if (nearestProjectLocalJsxCandidate) {
+      // 정의 파일 안에 JSX 가 없는 경우 — styled-components 를 styled.tsx 같은
+      // 별도 파일로 모아둔 구조가 대표적이다. 정의 위치(styled.tsx:4)로 보내면
+      // "이 요소를 어디서 썼나"라는 원래 질문에 답이 안 된다.
+      // 그래서 정의로 되돌아가기 전에, 가장 가까운 사용처를 먼저 쓴다.
+      screen = nearestProjectLocalJsxCandidate.source;
     } else {
       const matchingComponentCandidate = componentCandidates.find(
         (candidate) => candidate.file === nearestProjectLocalComponentFile,
