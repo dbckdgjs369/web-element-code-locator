@@ -1,6 +1,6 @@
 {
   "name": "react-code-locator",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -39,9 +39,6 @@
     "test:transform": "esbuild test/transform.spec.mts --bundle --platform=node --format=esm --outfile=node_modules/.cache/rcl-transform-spec.mjs --log-level=error && node node_modules/.cache/rcl-transform-spec.mjs",
     "test:runtime": "esbuild test/runtime.spec.mts --bundle --platform=node --format=esm --outfile=node_modules/.cache/rcl-runtime-spec.mjs --log-level=error && node node_modules/.cache/rcl-runtime-spec.mjs"
   },
-  "dependencies": {
-    "webpack-virtual-modules": "^0.6.2"
-  },
   "devDependencies": {
     "@babel/parser": "^7.29.8",
     "@types/estree": "^1.0.8",
@@ -51,6 +48,7 @@
     "tsup": "^8.5.1",
     "typescript": "^5.8.2",
     "unplugin": "^3.0.0",
-    "vite": "^5.4.14"
+    "vite": "^5.4.14",
+    "webpack-virtual-modules": "^0.6.2"
   }
 }
