@@ -1,0 +1,126 @@
+/**
+ * Shared shim generator for every bundler whose aliasing is specifier-based.
+ *
+ * Vite's `resolveId` gets the importer and can exempt our own wrapper, so it needs none of
+ * this. webpack, rspack, Turbopack and esbuild's `onResolve` all match by specifier alone;
+ * aliasing `react/jsx-dev-runtime` there would also rewrite our wrapper's import of it and
+ * produce a cycle. The way out is the same everywhere: resolve React's real runtime in Node
+ * at config time and generate a CommonJS shim that requires it by path — the alias can then
+ * never point back at itself.
+ *
+ * Extracted from the Next integration, which adds one twist of its own (Next vendors React
+ * under next/dist/compiled and the app must be wrapped around *that* copy).
+ */
+
+import fs from "node:fs";
+import path from "node:path";
+import { createRequire } from "node:module";
+
+export const JSX_DEV_RUNTIME_SPECIFIER = "react/jsx-dev-runtime";
+
+export interface GenerateShimOptions {
+  projectRoot: string;
+  /** Where the shim is written. Defaults to <projectRoot>/node_modules/.cache. */
+  cacheDir?: string;
+  /**
+   * Specifiers to try, in order, for the real runtime. Defaults to the plain one; the Next
+   * integration prepends Next's vendored copy.
+   */
+  runtimeCandidates?: string[];
+}
+
+export function defaultCacheDir(projectRoot: string): string {
+  return path.join(projectRoot, "node_modules", ".cache");
+}
+
+/**
+ * Writes a CommonJS shim that pulls in the real runtime by path and hands it to our
+ * wrapper. Regenerated on every boot so a moved node_modules can't leave a stale path.
+ * Returns null (with a warning) when nothing resolves — a broken setup should degrade to
+ * "locating unavailable", never to a build error.
+ */
+export function generateShim(options: GenerateShimOptions): string | null {
+  const {
+    projectRoot,
+    cacheDir = defaultCacheDir(projectRoot),
+    runtimeCandidates = [JSX_DEV_RUNTIME_SPECIFIER],
+  } = options;
+
+  const requireFromProject = createRequire(path.join(projectRoot, "package.json"));
+
+  let realRuntime: string | undefined;
+  let wrapModule: string;
+  try {
+    for (const candidate of runtimeCandidates) {
+      try {
+        realRuntime = requireFromProject.resolve(candidate);
+        break;
+      } catch {
+        /* try the next candidate */
+      }
+    }
+    if (!realRuntime) throw new Error("no JSX dev runtime found");
+    wrapModule = requireFromProject.resolve("react-code-locator/wrap");
+  } catch {
+    console.warn(
+      "[react-code-locator] could not resolve the React JSX dev runtime from " +
+        `${projectRoot}; skipping. Element locating will be unavailable.`,
+    );
+    return null;
+  }
+
+  const dir = path.join(cacheDir, "react-code-locator");
+  fs.mkdirSync(dir, { recursive: true });
+
+  // Plain `.js`, not `.cjs`, for both files: `.js` is the one extension every bundler's
+  // JavaScript rule matches. A real CRA-eject app bundled the `.cjs` shim through its
+  // catch-all file-loader — as a static asset whose default export is a URL string — and
+  // every `import { jsxDEV }` in the app bound undefined.
+  const shimPath = path.join(dir, "jsx-dev-runtime.js");
+
+  // What `.js` *means* is decided by the nearest package.json, and the search does not
+  // stop at node_modules — in a project with `"type": "module"` these files would parse
+  // as ESM and die at runtime on `module is not defined` (esbuild reproduces this
+  // exactly; webpack follows the same rule). Pin the directory to CommonJS.
+  fs.writeFileSync(path.join(dir, "package.json"), '{"type":"commonjs"}\n', "utf8");
+
+  // Every path in here must be relative to the shim itself. Turbopack rejects absolute
+  // specifiers with "server relative imports are not implemented yet" — that applies to
+  // the alias target *and* to the requires inside the file it points at.
+  const relativeTo = (target: string) => {
+    const rel = path.relative(dir, target).split(path.sep).join("/");
+    return rel.startsWith(".") ? rel : `./${rel}`;
+  };
+
+  // Turbopack also refuses to resolve anything outside the project root, and this package
+  // lives outside it whenever it is npm-linked or hoisted in a monorepo. Copying the
+  // wrapper next to the shim makes the shim depend only on its own siblings.
+  const wrapCopy = path.join(dir, "wrap.js");
+  fs.copyFileSync(wrapModule, wrapCopy);
+
+  // Static `exports.x =` assignments, not `module.exports = wrap(...)`: webpack's CommonJS
+  // parser only sees named exports it can trace statically, and Babel-compiled modules do
+  // `import { jsxDEV } from "react/jsx-dev-runtime"`. With a dynamic module.exports that
+  // import warns "only default export is available" — once per JSX file (3,025 times on a
+  // real app) — and is not guaranteed to bind at runtime.
+  // projectRoot is baked in at config time: the compiler writes an absolute path into
+  // `__source`, and the browser has no way to learn where the project lives — see WrapOptions.
+  fs.writeFileSync(
+    shimPath,
+    "// Generated by react-code-locator. Do not edit.\n" +
+      `const real = require(${JSON.stringify(relativeTo(realRuntime))});\n` +
+      'const { wrapJsxDev } = require("./wrap.js");\n' +
+      `const options = { projectRoot: ${JSON.stringify(
+        projectRoot.split(path.sep).join("/"),
+      )} };\n` +
+      "exports.Fragment = real.Fragment;\n" +
+      "exports.jsxDEV = typeof real.jsxDEV === \"function\" ? wrapJsxDev(real.jsxDEV, options) : real.jsxDEV;\n" +
+      "// Anything else the runtime carries (rare, version-dependent) passes through untouched.\n" +
+      "for (const key of Object.keys(real)) {\n" +
+      "  if (!(key in exports)) exports[key] = real[key];\n" +
+      "}\n",
+    "utf8",
+  );
+
+  return shimPath;
+}

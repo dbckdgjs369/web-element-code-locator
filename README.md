@@ -1,310 +1,181 @@
-# React Code Locator
+# react-code-locator v2
 
-A package that lets you right-click any element in your React app during development to jump directly to its source code location.
+렌더된 엘리먼트에서 그 엘리먼트를 만든 소스 위치로 점프한다. **소스를 다시 파싱하지 않고.**
 
-- **Zero dependencies**: No Babel, no React DevTools, no browser extension — just one build plugin.
-- **React 19 support**: `fiber._debugSource` was removed in React 19. This package injects source metadata at build time, so it works regardless of the React version.
-- **Universal**: Supports Vite, Webpack, Rollup, esbuild, and Rspack.
-- **Dev only**: No impact on production builds.
+v1은 번들러의 `transform` 훅에서 문자열을 받아 `@babel/parser`로 재파싱했다.
+v2에는 재파싱 경로가 아예 없다 — 컴파일러가 이미 계산해둔 위치를 가로챈다.
 
-## Installation
+설계 근거와 버린 선택지는 [DESIGN.md](./DESIGN.md).
 
-```bash
-npm i -D react-code-locator
-```
+## 상태
 
-## Quick Start
+프로토타입. npm 미배포.
+
+핵심 질문은 하나다: **"이 엘리먼트를 만든 내 코드가 어디인가"** (JSX 호출 위치).
+컴포넌트 *정의* 위치(Alt+2)는 부가 기능으로 강등했다 — Vite에서만 나오고, 없어도 위 질문에는 답한다.
+
+| 환경 | JSX 위치 | 검증 |
+|---|---|---|
+| Vite + `@vitejs/plugin-react` | 됨 | 실제 Chromium 렌더 |
+| Next.js — webpack | 됨 (서버 컴포넌트 포함) | `next dev` 실측 |
+| Next.js — **Turbopack** | 됨 (서버 컴포넌트 포함) | `next dev --turbopack` 실측 |
+| webpack 단독 | 됨 | 번들 실측 (`playground/bundlers`) |
+| **rspack** | 됨 | 번들 실측 |
+| **rollup** | 됨 | 번들 실측 |
+| **esbuild** | 됨 | 번들 실측 |
+| Vite + `plugin-react-swc` | 미검증 | — |
+| classic runtime (`React.createElement`) | 안 됨 | — |
+
+**Turbopack이 동작한다.** v1의 가장 큰 제약이었다(`webpack()` 훅이 호출되지 않아 에러도 경고도 없이 아무 일도 일어나지 않았다).
+
+## 쓰는 법
 
 ### Vite
-
-`vitePlugin` handles both source transform and automatic client runtime injection.
 
 ```ts
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { vitePlugin } from "react-code-locator";
+import { reactCodeLocator } from "react-code-locator";
 
 export default defineConfig({
-  plugins: [
-    react(),
-    vitePlugin(),
-  ],
+  plugins: [reactCodeLocator(), react()],
 });
 ```
 
-### Next.js (Webpack)
+tsconfig도 안 건드리고 `react()`에 옵션도 안 넘긴다. Babel visitor는
+plugin-react의 `api.reactBabel` 확장점을 통해 스스로 들어간다.
+
+### Next.js (webpack·Turbopack 공통)
 
 ```js
 // next.config.js
-const { webpackPlugin } = require("react-code-locator");
+const { withReactCodeLocator } = require("react-code-locator/next");
+
+module.exports = withReactCodeLocator({});
+```
+
+클라이언트 런타임은 직접 켠다 (Next에는 Vite의 `transformIndexHtml`에 해당하는 훅이 없다):
+
+```tsx
+"use client";
+import { useEffect } from "react";
+import { enableLocator } from "react-code-locator/runtime";
+
+export function Locator() {
+  useEffect(() => enableLocator({ triggerKey: "shift" }), []);
+  return null;
+}
+```
+
+### webpack · rspack 단독
+
+```js
+// webpack.config.js / rspack.config.js — 플러그인 하나가 양쪽을 다 덮는다.
+const { ReactCodeLocatorPlugin } = require("react-code-locator/webpack");
 
 module.exports = {
-  webpack(config) {
-    config.plugins.push(webpackPlugin());
-    return config;
-  },
+  plugins: [new ReactCodeLocatorPlugin()],
 };
 ```
 
-> **Webpack mode only — Turbopack is not supported.**
-> Under Turbopack, Next.js never calls the `webpack()` hook in `next.config.js`, so
-> the plugin is **never loaded and never runs**. There is no error and no warning —
-> the app boots normally and clicking simply does nothing. If locating stops working
-> after a Next.js upgrade, this is almost certainly why: Turbopack became the default
-> bundler in Next.js 16, and was opt-in via `--turbopack` in Next.js 15.
->
-> Run the dev server in webpack mode instead:
->
-> ```bash
-> next dev --webpack   # Next.js 16+: opt back out of Turbopack
-> next dev             # Next.js 15 and below: webpack is already the default
-> ```
->
-> The cause is upstream: `unplugin` ships vite, rollup, webpack, rspack and esbuild
-> adapters, but no Turbopack adapter, because Turbopack has no public plugin API for
-> source transforms yet. Support will land here once one exists.
-
-### Create React App
+### rollup
 
 ```js
-// config-overrides.js
-const { webpackPlugin } = require("react-code-locator");
+// rollup.config.js — @rollup/plugin-commonjs가 필요하다 (React를 번들하면 이미 있다).
+import { rollupPlugin } from "react-code-locator/rollup";
 
-module.exports = {
-  webpack(config) {
-    config.plugins.push(webpackPlugin());
-    return config;
-  },
-};
-```
-
-### Rollup
-
-```js
-// rollup.config.js
-import { rollupPlugin } from "react-code-locator";
-
-export default {
-  plugins: [rollupPlugin()],
-};
+export default { plugins: [rollupPlugin(), /* … */] };
 ```
 
 ### esbuild
 
 ```js
-import { esbuildPlugin } from "react-code-locator";
+// jsx: "automatic" + jsxDev: true 로 빌드해야 한다 — 그게 __source의 출처다.
+import { esbuildPlugin } from "react-code-locator/esbuild";
 
-await esbuild.build({
-  plugins: [esbuildPlugin()],
-});
+await esbuild.build({ jsx: "automatic", jsxDev: true, plugins: [esbuildPlugin()] });
 ```
 
-### Rspack
+단독 번들러 셋은 훅 C만 쓴다. 클라이언트 런타임은 Next처럼 직접 `enableLocator()`를 부르고,
+"Open in editor"는 dev 서버에 `openInEditorMiddleware`를 직접 마운트해야 동작한다
+(안 하면 Copy path만 된다). 검증은 `playground/bundlers/verify-*.mjs`.
 
-```js
-// rspack.config.js
-const { rspackPlugin } = require("react-code-locator");
+## 조작
 
-module.exports = {
-  plugins: [rspackPlugin()],
-};
-```
+Shift를 누른 채로 — 커서 아래 엘리먼트가 하이라이트되고, 우클릭하면 "Open in editor" / "Copy path" 메뉴가 뜬다.
+`Alt+1`은 **화면 위치**(그 엘리먼트를 쓴 JSX 줄), `Alt+2`는 **구현 위치**(그 엘리먼트를 렌더한 컴포넌트가 정의된 줄).
 
-## Options
+요청한 모드에 줄 게 없으면 다른 모드 값을 대신 보여주되 메뉴에 `(no distinct … location)`이라고 적는다.
+`Alt+2`는 Babel이 있는 환경(Vite)에서만 자기 값을 가진다 — 아래 훅 D 설명 참고.
 
-```ts
-// Options shared by all plugins
-webpackPlugin({
-  // Whether to enable the plugin (default: NODE_ENV === "development")
-  // Set this explicitly if you use a custom environment variable instead of NODE_ENV.
-  enabled: process.env.MY_ENV === "dev",
+"Open in editor"가 때리는 엔드포인트는 감지한 개발서버에 따라 갈린다.
+Vite는 이 패키지가 심는 `/__open-in-editor`, Next는 Next가 자체 에러 오버레이용으로
+이미 갖고 있는 `/__nextjs_launch-editor`. 응답이 200이 아니면 콘솔에 남긴다 —
+조용히 아무 일도 안 일어나는 게 v1의 최악 실패였다.
 
-  projectRoot: process.cwd(),    // Project root — base path for resolving source locations (default: process.cwd())
-});
+## 훅 두 개가 담당하는 정보가 다르다
 
-// Vite-only additional options
-vitePlugin({
-  enabled: process.env.MY_ENV === "dev",
-  projectRoot: process.cwd(),
+- **JSX 호출 위치** → 훅 G(`jsxDEV` 래퍼). 컴파일러가 dev 모드에 이미 5번째 인자로 넘긴다.
+- **컴포넌트 정의 위치** → 훅 D(Babel visitor). `const Card = memo(...)`가 몇 번째 줄인지는
+  어떤 컴파일러도 계산해주지 않는다. AST를 직접 봐야 한다.
 
-  // injectClient: true (default) — automatically injects enableReactComponentJump() into the HTML.
-  // injectClient: false — disables auto injection; call enableReactComponentJump() manually.
-  injectClient: true,
+Babel이 있는 환경(Vite)에서는 훅 D가 JSX 위치까지 담당한다.
+`@vitejs/plugin-react`가 JSX 변환을 esbuild에 넘기고 그 전에 fast-refresh 프리앰블
+19줄을 앞에 붙이는 탓에, 그 환경에서 훅 G가 받는 줄 번호가 그만큼 밀리기 때문이다.
+Next는 SWC가 파싱부터 JSX 변환까지 한 패스에서 처리해 밀림이 없다 — 실측했다.
 
-  editor: "code",                // Editor to open files in (default: "code"). See supported editors below.
+두 훅은 같은 레지스트리에 쓰고 훅 D가 바깥에서 실행되므로(`__rcl(jsxDEV(...))`),
+정확한 값이 근사값을 자연스럽게 덮어쓴다.
 
-  locator: {                     // Runtime options (injected automatically when injectClient: true)
-    triggerKey: "shift",         // Trigger key: "alt" | "meta" | "ctrl" | "shift" | "none" (default: "shift")
-    projectRoot: process.cwd(),  // Base path for normalizing source paths (default: not set)
-    openInEditor: true,          // Show "Open in editor" in the right-click menu (default: false)
-    onLocate(result) {},         // Callback when a source location is found
-    onError(error) {},           // Callback on error
-  },
-});
-```
+## 서버 컴포넌트는 어떻게 되나
 
-## Usage
+App Router의 기본값이라 이게 안 되면 대부분의 화면이 조회 불가다. 그런데 된다.
 
-### Hover Highlight
-
-Hold the trigger key (default: `Shift`) and hover over an element. The element will be highlighted in blue like a DevTools inspector, showing the component file name and line number.
-
-### Right-Click Context Menu
-
-Hold the trigger key and **right-click** any element to open the context menu.
+서버 컴포넌트의 `jsxDEV`는 Node에서 돌아 훅 G가 **서버 쪽** 레지스트리에 쓴다.
+브라우저는 직렬화된 RSC 페이로드를 받고 거기엔 `__source`가 없다 — 여기까지는 막힌 길이다.
+막히지 않는 이유는 React 19가 RSC로 보내는 엘리먼트마다 owner stack을 같이 실어 보내고,
+클라이언트가 그걸 `fiber._debugStack`에 남겨두기 때문이다. 위치는 브라우저에 **있다**.
+다만 컴파일된 서버 모듈 좌표로 적혀 있다:
 
 ```
-┌─────────────────────────────────┐
-│  Open in editor                 │  ← openInEditor: true 일 때 표시
-│  Copy path                      │
-└─────────────────────────────────┘
+webpack     at ServerPage (about://React/Server/webpack-internal:///(rsc)/./app/page.tsx?6:25:87)
+Turbopack   at ServerPanel (about://React/Server/file:///….next/server/chunks/ssr/…_.js?4:26:263)
 ```
 
-| Item | Action |
-|------|--------|
-| Open in editor | Opens the source file in your editor and jumps to the exact line (shown when `openInEditor: true`) |
-| Copy path | Copies the source path in `file:line:col` format to the clipboard |
+이걸 소스 위치로 바꾸려면 서버에만 존재했던 모듈의 소스맵이 필요한데, Next이 자기
+에러 오버레이를 위해 그 변환을 `/__nextjs_original-stack-frames`로 이미 열어놓았다.
+동일 출처 POST 한 번이면 된다. 크롬 익스텐션도, CDP도 필요 없다.
 
-> The browser's default context menu is automatically suppressed.
+대가는 이 경로가 **비동기**라는 것이다. 그래서 `locate()`는 동기로 남겨두고
+(호버가 프레임마다 부르니까) 이 경로는 `locateAsync()`가 담당한다. 한 번 받은 답은
+프레임 좌표로 메모이즈되므로 같은 엘리먼트를 두 번째 볼 때는 동기 경로가 바로 답한다.
 
-### Keyboard Shortcuts
+`src/rsc.ts`, 검증은 `playground/next/e2e-server.mjs`.
 
-| Key | Action |
-|-----|--------|
-| `Shift + Click` | Print source location to the console |
-| `Alt + 1` | Screen mode (components visible on screen, default) |
-| `Alt + 2` | Implementation mode (implementation location) |
+## 검증 돌리기
 
-## Opening in Editor
+```bash
+npm install && npm run build
 
-Set `openInEditor: true` to show the "Open in editor" option in the right-click menu.
+cd playground/vite && npm install
+node verify.mjs     # 훅 C·D·G 각각
+node e2e.mjs        # 실제 Chromium 렌더
 
-### Vite
+cd ../next && npm install
+node check.mjs             # 번들에 실린 __source 페이로드
+node e2e.mjs               # 클라이언트 컴포넌트, webpack
+node e2e.mjs --turbo       # 클라이언트 컴포넌트, Turbopack
+node e2e-server.mjs        # 서버 컴포넌트, webpack
+node e2e-server.mjs --turbo  # 서버 컴포넌트, Turbopack
 
-The `/__open-in-editor` endpoint is automatically registered by `vitePlugin`. No extra setup needed.
-
-```ts
-// vite.config.ts
-vitePlugin({
-  editor: "code",   // editor command (default: "code")
-  locator: {
-    openInEditor: true,
-  },
-})
+cd ../bundlers && npm install
+node verify-webpack.mjs    # webpack 단독
+node verify-rspack.mjs     # rspack (webpack 플러그인 그대로)
+node verify-rollup.mjs
+node verify-esbuild.mjs
 ```
 
-### Webpack / Rspack
-
-Add `openInEditorMiddleware` to your devServer and pass the editor command.
-
-```js
-// webpack.config.js
-const { webpackPlugin, openInEditorMiddleware } = require("react-code-locator");
-
-module.exports = {
-  plugins: [webpackPlugin()],
-  devServer: {
-    setupMiddlewares(middlewares) {
-      middlewares.unshift({
-        name: "open-in-editor",
-        path: "/__open-in-editor",
-        middleware: openInEditorMiddleware("code"),  // pass your editor command
-      });
-      return middlewares;
-    },
-  },
-};
-```
-
-```ts
-// main.tsx
-import { enableReactComponentJump } from "react-code-locator";
-
-enableReactComponentJump({ openInEditor: true });
-```
-
-### Supported Editors
-
-| Editor | Command |
-|--------|---------|
-| VS Code | `"code"` |
-| VS Code Insiders | `"code-insiders"` |
-| Cursor | `"cursor"` |
-| VSCodium | `"codium"` / `"vscodium"` |
-| WebStorm | `"webstorm"` |
-| IntelliJ IDEA | `"idea"` |
-| GoLand | `"goland"` |
-| PyCharm | `"pycharm"` |
-| PhpStorm | `"phpstorm"` |
-| RubyMine | `"rubymine"` |
-| CLion | `"clion"` |
-| Rider | `"rider"` |
-| Zed | `"zed"` |
-| Sublime Text | `"subl"` |
-| Atom | `"atom"` |
-| Vim | `"vim"` |
-| Emacs | `"emacs"` |
-
-## Manual Setup
-
-Disable auto injection with `injectClient: false` and call `enableReactComponentJump` manually to control activation. This approach is also used in non-Vite environments.
-
-```ts
-// vite.config.ts
-vitePlugin({ injectClient: false })
-```
-
-```ts
-// main.tsx
-import { enableReactComponentJump } from "react-code-locator";
-
-enableReactComponentJump({
-  enabled: true,                   // default: true. Set to false to disable.
-  triggerKey: "shift",             // "alt" | "meta" | "ctrl" | "shift" | "none" (default: "shift")
-  projectRoot: "/path/to/project", // Base path for normalizing source paths (optional)
-  openInEditor: true,              // Show "Open in editor" in the right-click menu
-  onLocate(result) {
-    console.log("Source:", result.source);  // result.source, result.mode
-  },
-  onError(error) {
-    console.error("Error:", error);
-  },
-});
-```
-
-## What Gets Detected
-
-Every JSX element gets its source location registered, so clicking any rendered
-markup resolves. On top of that, these component declaration forms are annotated
-with their definition site (used by implementation mode, `Alt+2`):
-
-| Form | Example |
-| --- | --- |
-| Function declaration | `function Card() {}` |
-| Arrow / function expression | `const Card = () => {}` |
-| Class component | `class Card extends React.Component {}` |
-| `memo` / `forwardRef` | `const Card = memo(...)` |
-| Any HOC call | `const Card = withAuth(Base)` |
-| Tagged template | ``const Card = styled(Base)`...` `` |
-| Nested (non-top-level) | `function Outer() { const Row = () => {} }` |
-
-Detection keys off the capitalized-name convention: only identifiers starting with
-an uppercase letter are treated as components. Classes are only annotated when they
-extend a base class, so plain data classes are left alone.
-
-File types: `.tsx`, `.jsx`, `.js` and `.ts`. JSX wrapping runs on everything except
-`.ts` (which cannot contain JSX, and where the JSX parser would misread `<T,>`
-generic arrow functions).
-
-## Known Limitations
-
-- **React Native not supported**: Relies on the DOM API.
-- **Turbopack not supported**: Turbopack has no public plugin API for source transforms, and `unplugin` has no Turbopack adapter as a result. Under Turbopack the plugin is never loaded and fails silently — see the [Next.js section](#nextjs-webpack) for the `--webpack` workaround.
-- **Disabled elements / blocked pointer-events**: Elements with a `disabled` attribute or `pointer-events: none` applied will not fire click events and cannot be detected.
-- **CRA (Create React App)**: The webpack config is hidden, so plugin injection requires `react-app-rewired` or `craco`.
-- **Dev only**: The plugin's `enabled` option defaults to `NODE_ENV === "development"`, so it is automatically disabled in production builds.
-
-## License
-
-MIT
+`playground/next`는 tarball 설치를 쓴다. Turbopack이 프로젝트 루트 밖으로 나가는
+심볼릭 링크(`file:../..`)를 해석하지 못해서다. `src`를 고치면
+`npm run build && npm pack` 후 다시 설치해야 반영된다.

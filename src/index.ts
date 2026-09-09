@@ -1,23 +1,33 @@
-// Runtime exports
-export { enableReactComponentJump, locateComponentSource } from "./runtime";
-export type { LocatorMode, LocatorOptions, LocatorResult, TriggerKey } from "./runtime";
+export { getRegistry, REGISTRY_SYMBOL, COMPONENT_SOURCE_PROP } from "./registry";
+export type { SourceLocation } from "./registry";
 
-// Plugin exports from unplugin
-export { unplugin as default } from "./unplugin";
+export { locate, locateAsync } from "./locate";
+export type { LocatorMode, LocatorResult } from "./locate";
+
+export { detectDevServer, editorRequestFor } from "./dev-server";
+export type { DevServerKind } from "./dev-server";
+
+export { enableLocator } from "./runtime";
+export type { LocatorOptions, TriggerKey } from "./runtime";
+
 export {
-  vitePlugin,
-  webpackPlugin,
-  rollupPlugin,
-  esbuildPlugin,
-  rspackPlugin,
-} from "./unplugin";
+  openInEditor,
+  openInEditorMiddleware,
+  OPEN_IN_EDITOR_PATH,
+} from "./open-in-editor";
+export type { OpenInEditorOptions } from "./open-in-editor";
 
-// Re-export types
-export type { ReactCodeLocatorOptions, ViteReactCodeLocatorOptions } from "./unplugin";
+export { reactCodeLocator, default as vitePlugin } from "./integrations/vite";
+export type { ReactCodeLocatorOptions } from "./integrations/vite";
 
-// Open in editor middleware (for webpack/rspack devServer)
-export { openInEditorMiddleware } from "./openInEditorPlugin";
+// Hook-C-only integrations for standalone bundlers. rspack takes the webpack plugin —
+// same plugin surface, and this one only touches resolve.alias.
+export { ReactCodeLocatorPlugin } from "./integrations/webpack";
+export type { WebpackPluginOptions } from "./integrations/webpack";
+export { rollupPlugin } from "./integrations/rollup";
+export type { RollupPluginOptions } from "./integrations/rollup";
+export { esbuildPlugin } from "./integrations/esbuild";
+export type { EsbuildPluginOptions } from "./integrations/esbuild";
 
-// Editor constants
-export { SUPPORTED_EDITORS, DEFAULT_EDITOR } from "./editors";
-export type { SupportedEditor } from "./editors";
+export { default as babelPlugin } from "./babel/plugin";
+export type { BabelPluginOptions } from "./babel/plugin";

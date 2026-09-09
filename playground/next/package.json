@@ -1,0 +1,14 @@
+{
+  "name": "playground-next",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "dev:turbo": "next dev --turbopack"
+  },
+  "dependencies": {
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-code-locator": "file:../../react-code-locator-1.0.0.tgz",
+    "react-dom": "^19.0.0"
+  }
+}
