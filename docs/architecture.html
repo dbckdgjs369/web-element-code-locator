@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>react-code-locator — 동작 원리 (1.0.0, 실측 기준)</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel2: #1c2129;
+    --line: #2a3038;
+    --fg: #d7dde5;
+    --dim: #8b949e;
+    --accent: #5ac8fa;
+    --warn: #f0a020;
+    --good: #56d364;
+    --bad: #f2626b;
+    --purple: #bc8cff;
+    --code: #c9d1d9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif;
+    line-height: 1.75; font-size: 15.5px;
+  }
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 56px 28px 140px; }
+  h1 { font-size: 30px; letter-spacing: -0.02em; margin: 0 0 6px; }
+  .sub { color: var(--dim); margin: 0 0 44px; font-size: 15px; }
+  h2 { font-size: 21px; margin: 64px 0 4px; padding-top: 26px; border-top: 1px solid var(--line); letter-spacing: -0.01em; }
+  h2 .n { color: var(--accent); font-variant-numeric: tabular-nums; margin-right: 10px; }
+  h3 { font-size: 16.5px; margin: 34px 0 8px; color: #fff; }
+  p { margin: 10px 0; }
+  ul { margin: 10px 0; padding-left: 20px; }
+  li { margin: 5px 0; }
+  code, pre { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  code { background: var(--panel2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font-size: 13px; color: var(--code); }
+  pre {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; overflow-x: auto; font-size: 12.5px; line-height: 1.7; color: var(--code);
+  }
+  pre .c { color: var(--dim); }
+  pre .k { color: var(--accent); }
+  pre .s { color: var(--good); }
+  pre .hl { color: var(--warn); font-weight: 600; }
+  .dim { color: var(--dim); }
+  .good { color: var(--good); }
+  .bad { color: var(--bad); }
+  .warn { color: var(--warn); }
+
+  /* ── 파이프라인 다이어그램 ─────────────────────────── */
+  .pipeline { display: flex; gap: 0; align-items: stretch; margin: 28px 0 8px; }
+  .stage {
+    flex: 1; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; position: relative;
+  }
+  .stage + .stage { margin-left: 34px; }
+  .stage + .stage::before {
+    content: "→"; position: absolute; left: -26px; top: 50%; transform: translateY(-50%);
+    color: var(--accent); font-size: 20px;
+  }
+  .stage .tag { font-size: 11px; letter-spacing: 0.08em; color: var(--accent); text-transform: uppercase; }
+  .stage .name { font-weight: 700; color: #fff; margin: 2px 0 6px; font-size: 15px; }
+  .stage .desc { font-size: 12.5px; color: var(--dim); line-height: 1.6; }
+  .stage.rt .tag { color: var(--good); }
+  .stage.q .tag { color: var(--warn); }
+  .stage.ui .tag { color: var(--purple); }
+
+  /* ── 박스 다이어그램 공통 ─────────────────────────── */
+  .diagram {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 24px; margin: 20px 0; overflow-x: auto;
+  }
+  .diagram .title { font-size: 12px; color: var(--dim); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 16px; }
+  .box {
+    display: inline-block; background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 14px; font-size: 13px; font-family: "SF Mono", ui-monospace, monospace;
+  }
+  .box.accent { border-color: var(--accent); color: var(--accent); }
+  .box.good { border-color: var(--good); color: var(--good); }
+  .box.bad { border-color: var(--bad); color: var(--bad); }
+  .box.warn { border-color: var(--warn); color: var(--warn); }
+  .box.ghost { border-style: dashed; color: var(--dim); }
+  .arrow { color: var(--accent); padding: 0 10px; font-size: 16px; }
+  .arrow.down { display: block; padding: 4px 0 4px 40px; }
+  .row { margin: 10px 0; white-space: nowrap; }
+  .note { font-size: 12px; color: var(--dim); margin-top: 12px; line-height: 1.6; }
+
+  table { border-collapse: collapse; width: 100%; margin: 18px 0; font-size: 13.5px; }
+  th, td { border: 1px solid var(--line); padding: 9px 13px; text-align: left; vertical-align: top; }
+  th { background: var(--panel); color: #fff; font-size: 12.5px; }
+  td { background: var(--panel2); }
+  .mono { font-family: "SF Mono", ui-monospace, monospace; font-size: 12.5px; }
+
+  .callout {
+    border-left: 3px solid var(--warn); background: var(--panel);
+    padding: 12px 18px; border-radius: 0 10px 10px 0; margin: 18px 0; font-size: 14px;
+  }
+  .callout.good { border-left-color: var(--good); }
+  .callout.bad { border-left-color: var(--bad); }
+
+  /* fiber walk */
+  .fiber { list-style: none; padding: 0; margin: 14px 0; font-family: "SF Mono", ui-monospace, monospace; font-size: 13px; }
+  .fiber li { padding: 7px 14px; border: 1px solid var(--line); border-radius: 8px; margin: 6px 0; background: var(--panel2); display: flex; justify-content: space-between; gap: 20px; align-items: baseline; }
+  .fiber li .verdict { font-size: 12px; white-space: nowrap; }
+  .fiber li.hit { border-color: var(--good); }
+  .fiber li.skip { opacity: 0.6; }
+  .walkarrow { color: var(--warn); text-align: left; padding-left: 20px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>react-code-locator 동작 원리</h1>
+<p class="sub">1.0.0 · "화면의 이 요소, 내 코드 몇 번째 줄이야?" 하나에 답하는 도구 · 이 문서의 모든 경로/한계는 실측 기준</p>
+
+<!-- ═══════════════ 0. 큰 그림 ═══════════════ -->
+<h2><span class="n">0</span>큰 그림 — 4단계 파이프라인</h2>
+<p>핵심 아이디어 한 줄: <b>컴파일러가 dev 모드에서 어차피 만들어주는 위치 정보를, React가 버리기 직전에 가로채 보관해뒀다가, 클릭할 때 꺼내준다.</b></p>
+
+<div class="pipeline">
+  <div class="stage">
+    <div class="tag">① 빌드 타임</div>
+    <div class="name">모듈 바꿔치기</div>
+    <div class="desc"><code>react/jsx-dev-runtime</code> import를 우리 래퍼로 리다이렉트. 앱 코드는 0바이트 수정.</div>
+  </div>
+  <div class="stage rt">
+    <div class="tag">② 런타임</div>
+    <div class="name">가로채서 보관</div>
+    <div class="desc">jsxDEV 래퍼가 요소 생성 때마다 위치를 WeakMap 레지스트리에 기록.</div>
+  </div>
+  <div class="stage q">
+    <div class="tag">③ 조회</div>
+    <div class="name">DOM → fiber → 위치</div>
+    <div class="desc">클릭된 DOM에서 fiber를 얻어 트리를 올라가며 레지스트리를 조회.</div>
+  </div>
+  <div class="stage ui">
+    <div class="tag">④ UI / 에디터</div>
+    <div class="name">오버레이 → VS Code</div>
+    <div class="desc">호버 하이라이트 + 클릭 시 <code>/__open-in-editor</code>로 에디터 점프.</div>
+  </div>
+</div>
+<p class="note">훅은 단 하나(①)뿐이고, 번들러별 통합 코드는 전부 "그 하나의 훅을 각 번들러에서 어떻게 거는가"의 변주다.</p>
+
+<!-- ═══════════════ 1. 빌드 타임 ═══════════════ -->
+<h2><span class="n">1</span>빌드 타임 — 위치 정보는 이미 공짜로 존재한다</h2>
+
+<p>dev 모드에서 모든 JSX는 컴파일러(Babel/SWC/esbuild)가 이렇게 바꾼다. 5번째 인자를 보라 — <b>파일·줄·칸이 이미 실려 온다.</b></p>
+
+<pre><span class="c">// 내가 쓴 코드</span>
+&lt;button className="btn"&gt;저장&lt;/button&gt;
+
+<span class="c">// 컴파일 결과 (dev)</span>
+<span class="k">import</span> { jsxDEV } <span class="k">from</span> <span class="s">"react/jsx-dev-runtime"</span>;  <span class="c">// ← 컴파일러가 자동 삽입</span>
+jsxDEV(<span class="s">"button"</span>, {...}, key, <span class="k">false</span>,
+  <span class="hl">{ fileName: "src/App.tsx", lineNumber: 42, columnNumber: 7 }</span>,  <span class="c">// __source</span>
+  <span class="k">this</span>);</pre>
+
+<p>문제는 React가 이 <code>__source</code>를 받자마자 버린다는 것(React 19는 아예 보관 필드를 삭제했다 — DevTools 소스 표시가 19에서 사라진 이유이자 이 패키지가 존재하는 이유). 그래서 <b>React에게 전달되기 직전 지점</b>, 즉 <code>jsxDEV</code> 함수 자체를 우리 것으로 바꾼다.</p>
+
+<h3>바꿔치기 전략 A — Vite: importer를 아는 리다이렉트</h3>
+<div class="diagram">
+  <div class="title">vite.ts · resolveId 훅</div>
+  <div class="row"><span class="box">앱 코드의 import "react/jsx-dev-runtime"</span><span class="arrow">→</span><span class="box accent">우리 래퍼 모듈로 리다이렉트</span></div>
+  <div class="row"><span class="box ghost">래퍼 자신의 import "react/jsx-dev-runtime"</span><span class="arrow">→</span><span class="box good">통과 (진짜 React 런타임)</span></div>
+  <div class="note">Vite의 <code>resolveId(specifier, <b>importer</b>)</code>는 누가 import했는지 알려주므로, 래퍼 자신만 예외 처리하면 끝. 파일 생성이 전혀 없다.</div>
+</div>
+
+<h3>바꿔치기 전략 B — webpack · rspack · Next · Turbopack · esbuild · rollup: 생성된 shim</h3>
+<p>이들의 alias는 specifier 문자열만 보고 무조건 바꾼다. 순진하게 alias를 걸면:</p>
+<div class="diagram">
+  <div class="title">순환 문제</div>
+  <div class="row"><span class="box">앱 → "react/jsx-dev-runtime"</span><span class="arrow">→</span><span class="box accent">우리 래퍼</span><span class="arrow">→</span><span class="box">래퍼 → "react/jsx-dev-runtime"</span><span class="arrow">→</span><span class="box bad">다시 우리 래퍼 (∞)</span></div>
+</div>
+<p>탈출구: <b>설정 시점에 Node로 진짜 런타임의 파일 경로를 미리 찾아두고</b>, 그 경로가 하드코딩된 shim 파일을 생성해 alias가 그걸 가리키게 한다. 경로로 require하니 alias에 다시 걸릴 일이 없다.</p>
+
+<pre><span class="c">// node_modules/.cache/react-code-locator/  ← 매 부팅마다 재생성</span>
+├── jsx-dev-runtime.js   <span class="c">// 아래 내용의 shim</span>
+├── wrap.js              <span class="c">// 래퍼 본체 복사본 (모노레포/링크 대응: 형제 파일만 참조)</span>
+└── package.json         <span class="c">// {"type":"commonjs"} — 프로젝트가 "type":"module"이어도 CJS 유지</span>
+
+<span class="c">// jsx-dev-runtime.js (생성됨)</span>
+<span class="k">const</span> real = require(<span class="s">"../../react/cjs/... (실제 경로)"</span>);   <span class="c">// 경로 require → 순환 불가</span>
+<span class="k">const</span> { wrapJsxDev } = require(<span class="s">"./wrap.js"</span>);
+<span class="k">const</span> options = { projectRoot: <span class="s">"/Users/me/my-app"</span> };        <span class="c">// 빌드 머신에서만 아는 값을 여기서 굽는다</span>
+exports.Fragment = real.Fragment;                             <span class="c">// 정적 exports — webpack이 named export를 인식</span>
+exports.<span class="hl">jsxDEV = wrapJsxDev(real.jsxDEV, options)</span>;</pre>
+
+<table>
+  <tr><th>shim의 디테일</th><th>없으면 생기는 일 (전부 실전에서 발견)</th></tr>
+  <tr><td class="mono">.js 확장자 (.cjs 아님)</td><td>CRA의 catch-all file-loader가 <code>.cjs</code>를 정적 애셋으로 번들 → jsxDEV가 URL 문자열이 됨 (경고 3,025개 + 크래시)</td></tr>
+  <tr><td class="mono">package.json {"type":"commonjs"}</td><td>프로젝트가 <code>"type":"module"</code>이면 shim이 ESM으로 해석돼 <code>module is not defined</code>로 즉사</td></tr>
+  <tr><td class="mono">정적 exports.x = 대입</td><td><code>module.exports = wrap(...)</code>이면 webpack이 named export를 못 봐 JSX 파일당 경고 1개씩</td></tr>
+  <tr><td class="mono">ModuleScopePlugin 허용 목록 등록</td><td>CRA가 "src/ 밖 import 금지"로 shim을 차단 (에러 86개)</td></tr>
+  <tr><td class="mono">상대경로 require</td><td>Turbopack이 절대경로 specifier를 거부</td></tr>
+  <tr><td class="mono">Next는 vendored React를 감쌈</td><td><code>next/dist/compiled/react</code> 대신 일반 react를 감싸면 React 내부 상태가 둘로 갈라져 첫 렌더에서 사망</td></tr>
+</table>
+
+<!-- ═══════════════ 2. 런타임 ═══════════════ -->
+<h2><span class="n">2</span>런타임 — 요소가 태어날 때마다 위치를 장부에 적는다</h2>
+
+<div class="diagram">
+  <div class="title">wrap.ts · 요소 1개 생성 시퀀스 (+382ns)</div>
+  <div class="row"><span class="box">jsxDEV("button", props, …, __source)</span></div>
+  <div class="arrow down">↓ ① 경로 정규화: /Users/me/app/src/App.tsx → <b>src/App.tsx</b> <span class="dim">(React에 넘기기 전에 — React ≤18의 _debugSource에도 같은 값이 실리도록)</span></div>
+  <div class="arrow down">↓ ② 진짜 jsxDEV 호출 → React 요소 생성</div>
+  <div class="arrow down">↓ ③ 레지스트리 기록</div>
+  <div class="row"><span class="box good">WeakMap: element.props → { file: "src/App.tsx", line: 42, column: 7 }</span></div>
+</div>
+
+<p><b>왜 key가 props 객체인가?</b> React는 요소를 fiber로 바꿔치우지만 <b>props 객체는 그대로 fiber에 실려 다닌다.</b> 나중에 DOM에서 거꾸로 출발해도 도달할 수 있는 유일한 불변 연결고리가 props다. WeakMap이므로 요소가 사라지면 기록도 GC로 자동 소멸 — 장부가 무한히 자라지 않는다.</p>
+
+<div class="callout good">레지스트리는 <code>globalThis[Symbol.for("react-code-locator.registry")]</code>에 하나만 존재한다. 번들이 여러 개여도(코드 스플리팅, 마이크로 프론트엔드) 같은 장부를 공유한다.</div>
+
+<!-- ═══════════════ 3. 조회 ═══════════════ -->
+<h2><span class="n">3</span>조회 — 클릭된 DOM에서 거꾸로 걸어 올라간다</h2>
+
+<p>사용자가 <code>&lt;input&gt;</code>을 클릭했다고 하자. <code>locate()</code>는:</p>
+
+<div class="diagram">
+  <div class="title">locate.ts · fiber walk (RemoteCall 로그인 페이지 실측 그대로)</div>
+  <ul class="fiber">
+    <li class="hit"><span>DOM &lt;input&gt; → el.<b>__reactFiber$xyz</b> → fiber(input)</span><span class="verdict good">레지스트리 HIT → src/…/LoginForm/index.tsx:455:21</span></li>
+  </ul>
+  <div class="walkarrow">↑ 만약 여기 기록이 없었다면 (styled-components 내부, 라이브러리 요소 …) fiber.return으로 계속 상승:</div>
+  <ul class="fiber">
+    <li class="skip"><span>fiber(styled.input 내부)</span><span class="verdict dim">기록 없음 → 통과</span></li>
+    <li class="skip"><span>fiber(node_modules의 요소)</span><span class="verdict warn">위치가 node_modules → 필터링</span></li>
+    <li class="hit"><span>fiber(&lt;InputLabel&gt; — 내 코드의 JSX)</span><span class="verdict good">가장 가까운 "내 코드" 위치 반환</span></li>
+  </ul>
+  <div class="note">각 fiber에서 보는 순서: ① WeakMap 레지스트리에 props가 있나 (주 경로) → ② <code>fiber._debugSource</code>가 있나 (React ≤18 폴백 — classic 빌드의 옛 프로젝트도 이 덕에 동작). node_modules 소속은 걸러서 <b>항상 "내 코드"의 위치</b>를 답한다.</div>
+</div>
+
+<div class="callout">이 "위로 걷기" 때문에 <code>React.createElement</code>/<code>cloneElement</code>로 만든 요소는 null이 아니라 <b>가장 가까운 JSX 조상의 위치</b>가 나온다(실측: 자기 정의 줄 대신 부모 &lt;div&gt;의 줄). 근처엔 떨어지지만 조상 위치라는 표시가 없는 것이 알려진 개선점.</div>
+
+<h3>서버 컴포넌트 — 장부에 없는 요소들</h3>
+<p>서버 컴포넌트의 jsxDEV는 <b>서버 프로세스에서</b> 실행됐으므로 브라우저 레지스트리에 없다. 이 경우 별도 경로(<code>rsc.ts</code>):</p>
+<div class="diagram">
+  <div class="title">locateAsync · owner-stack 경로 (Next 15·16 App Router)</div>
+  <div class="row"><span class="box">fiber._debugStack (React 19 owner stack — 에러 스택 형태)</span><span class="arrow">→</span><span class="box">번들 위치 추출 (page.js:123:45)</span><span class="arrow">→</span><span class="box accent">Next 소스맵 서비스로 원본 복원</span><span class="arrow">→</span><span class="box good">app/server/page.tsx:13:5</span></div>
+  <div class="note">소스맵 fetch가 비동기라 <code>locateAsync</code>로 분리; 한 번 풀린 위치는 캐시되어 동기 <code>locate</code>도 즉시 답한다.</div>
+</div>
+
+<!-- ═══════════════ 4. UI ═══════════════ -->
+<h2><span class="n">4</span>UI와 에디터 점프</h2>
+<div class="diagram">
+  <div class="title">runtime.ts + open-in-editor.ts + dev-server.ts</div>
+  <div class="row"><span class="box">enableLocator({ triggerKey: "shift" })</span><span class="arrow">→</span><span class="box">shift 누른 채 호버: 오버레이 + "src/App.tsx:42" 라벨</span></div>
+  <div class="row"><span class="box">클릭</span><span class="arrow">→</span><span class="box accent">GET /__open-in-editor?file=src/App.tsx:42:7</span><span class="arrow">→</span><span class="box good">서버가 실행: code --goto src/App.tsx:42:7</span></div>
+  <div class="note">엔드포인트는 Vite에 내장, webpack/Next에는 우리 미들웨어(<code>openInEditorMiddleware</code>)를 dev 서버에 얹는다. 미들웨어가 없어도 메뉴의 "경로 복사"는 항상 동작.</div>
+</div>
+
+<!-- ═══════════════ 5. 매트릭스 ═══════════════ -->
+<h2><span class="n">5</span>지원 매트릭스 — 전부 브라우저 실측</h2>
+<table>
+  <tr><th>환경</th><th>경로</th><th>결과</th></tr>
+  <tr><td>automatic 런타임 (2021년 이후 대부분): Vite · Next 15–16 (webpack + Turbopack, 서버 컴포넌트 포함) · webpack · rspack · rollup · esbuild × React 17–19</td><td>① 주 경로 (레지스트리)</td><td class="good">✅ 정확한 줄·칸</td></tr>
+  <tr><td>실전: RemoteCall agent (React 17 + webpack 5 CRA-eject + styled-components + pnpm 모노레포)</td><td>① 주 경로</td><td class="good">✅ 5/5 요소 정밀 일치</td></tr>
+  <tr><td>classic 변환 + React ≤18 + Babel dev (옛 CRA 등)</td><td>② _debugSource 폴백</td><td class="good">✅ 동작 (경로가 절대경로인 점만 미정규화)</td></tr>
+  <tr><td><b>classic 변환 + React 19</b></td><td>둘 다 없음</td><td class="bad">❌ 조용히 null (앱은 정상)</td></tr>
+  <tr><td>JSX가 아닌 요소 (createElement 직접 호출 · cloneElement)</td><td>fiber walk의 부수 효과</td><td class="warn">△ 가장 가까운 JSX 조상 위치 (표시 없음)</td></tr>
+  <tr><td>프로덕션 빌드</td><td>—</td><td class="dim">코드 0바이트 포함, 비용 정확히 0 (jsxDEV 자체가 존재하지 않음)</td></tr>
+</table>
+
+<div class="callout bad"><b>유일한 실측 구멍:</b> classic + React 19. 가로챌 import가 없고(①) React 19가 _debugSource를 삭제해(②) 위치 데이터가 브라우저에 도달할 방법 자체가 없다. React 19로 올릴 정도의 프로젝트는 거의 automatic이라 현실 빈도는 낮음 — 남은 과제는 이 조합을 감지해 콘솔 경고를 내주는 것.</div>
+
+<p class="dim" style="margin-top:48px">비용 실측: 요소당 +382ns (10k 요소 렌더에 ~3.8ms) · 빌드 오버헤드 Vite 0.49ms/모듈, 그 외 ~0 · 이전 버전(0.4.x) 대비 dev 코드 증가 +90% → 0~31%</p>
+
+</div>
+</body>
+</html>

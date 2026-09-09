@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>react-code-locator — 3분 애니메이션으로 보는 동작 원리</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2129; --line: #2a3038;
+    --fg: #d7dde5; --dim: #8b949e; --accent: #5ac8fa; --warn: #f0a020;
+    --good: #56d364; --bad: #f2626b; --purple: #bc8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif;
+    display: flex; flex-direction: column; align-items: center; min-height: 100vh;
+    padding: 34px 16px 40px;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .sub { color: var(--dim); font-size: 13.5px; margin: 0 0 22px; }
+
+  /* ───── 무대 ───── */
+  .stage-wrap { width: 900px; max-width: 100%; }
+  .stage {
+    position: relative; width: 900px; max-width: 100%; height: 400px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    overflow: hidden;
+  }
+  .scene { position: absolute; inset: 0; opacity: 0; pointer-events: none; transition: opacity .35s; }
+  .scene.active { opacity: 1; pointer-events: auto; }
+
+  /* ───── 내레이션 ───── */
+  .narration {
+    margin: 18px auto 10px; max-width: 780px; text-align: center;
+    font-size: 17px; line-height: 1.8; min-height: 66px;
+  }
+  .narration b { color: var(--accent); }
+  .narration .g { color: var(--good); }
+  .narration .r { color: var(--bad); }
+
+  /* ───── 컨트롤 ───── */
+  .controls { display: flex; align-items: center; gap: 14px; margin-top: 6px; }
+  button {
+    background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 10px; padding: 9px 18px; font-size: 14px; cursor: pointer;
+    font-family: inherit; transition: border-color .15s;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #06283a; border-color: var(--accent); font-weight: 700; }
+  .dots { display: flex; gap: 8px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); cursor: pointer; transition: all .2s; }
+  .dot.on { background: var(--accent); transform: scale(1.35); }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 10px; }
+
+  /* ───── 공용 배우들 ───── */
+  .elem-box {
+    position: absolute; width: 118px; height: 78px; border-radius: 12px;
+    background: linear-gradient(160deg, #263041, #1b2330); border: 1.5px solid #3d4a5e;
+    display: flex; align-items: center; justify-content: center; flex-direction: column;
+    font-size: 13px; color: #cdd7e3; box-shadow: 0 6px 18px rgba(0,0,0,.4);
+  }
+  .elem-box .icon { font-size: 26px; }
+  .tag {
+    position: absolute; background: #f7e8b0; color: #6b5410; border-radius: 6px;
+    padding: 5px 10px; font-size: 11.5px; font-family: "SF Mono", ui-monospace, monospace;
+    box-shadow: 0 3px 10px rgba(0,0,0,.45); transform-origin: top left;
+    border: 1px solid #d9c67a; white-space: nowrap;
+  }
+  .tag::before { content: "🏷 "; }
+  .door {
+    position: absolute; width: 120px; height: 170px; border-radius: 12px 12px 4px 4px;
+    background: linear-gradient(#20304a, #182238); border: 2px solid #33507a;
+    display: flex; align-items: flex-end; justify-content: center; padding-bottom: 12px;
+    font-size: 13px; color: #9fb8dc; font-weight: 700;
+  }
+  .door::before {
+    content: ""; position: absolute; top: 34px; left: 18px; right: 18px; bottom: 44px;
+    border-radius: 8px 8px 2px 2px; background: #101725; border: 1.5px solid #33507a;
+  }
+  .door .knob { position: absolute; top: 110px; left: 30px; width: 8px; height: 8px; border-radius: 50%; background: #6f8cb5; z-index: 2; }
+  .sign {
+    position: absolute; background: var(--panel2); border: 1px solid var(--line); border-radius: 7px;
+    padding: 4px 12px; font-family: "SF Mono", ui-monospace, monospace; font-size: 11px; color: var(--dim);
+  }
+  .ledger {
+    position: absolute; width: 250px; background: #17202c; border: 1.5px solid #3a4e42;
+    border-radius: 10px; padding: 10px 12px 12px;
+  }
+  .ledger .lh { font-size: 12px; color: var(--good); font-weight: 700; margin-bottom: 8px; }
+  .ledger .rowi {
+    font-family: "SF Mono", ui-monospace, monospace; font-size: 10.5px; color: #b9c6b9;
+    background: #1e2a24; border: 1px solid #2c3d33; border-radius: 6px;
+    padding: 4px 8px; margin-top: 5px; opacity: 0;
+  }
+  .browser {
+    position: absolute; border-radius: 12px; background: #0f141b; border: 1.5px solid var(--line);
+    overflow: hidden;
+  }
+  .browser .bar { height: 26px; background: var(--panel2); display: flex; align-items: center; gap: 5px; padding: 0 10px; }
+  .browser .bar i { width: 9px; height: 9px; border-radius: 50%; display: block; }
+  .browser .bar i:nth-child(1){background:#f2626b}.browser .bar i:nth-child(2){background:#f0a020}.browser .bar i:nth-child(3){background:#56d364}
+  .browser .body { padding: 16px 18px; }
+  .fakebtn {
+    display: inline-block; background: var(--accent); color: #06283a; font-weight: 700;
+    border-radius: 8px; padding: 8px 22px; font-size: 13px; position: relative;
+  }
+  .arrow-r { position: absolute; color: var(--accent); font-size: 26px; }
+
+  /* ═════════ S0: 문제 제기 ═════════ */
+  #s0 .browser { left: 90px; top: 90px; width: 300px; height: 210px; }
+  #s0 .editor {
+    position: absolute; right: 90px; top: 90px; width: 300px; height: 210px;
+    background: #0f141b; border: 1.5px solid var(--line); border-radius: 12px; padding: 34px 18px 14px;
+    font-family: "SF Mono", ui-monospace, monospace; font-size: 11px; color: #3d4a5a; line-height: 2;
+  }
+  #s0 .editor::before { content: "App.tsx · Login.tsx · Form.tsx …"; position: absolute; top: 8px; left: 16px; font-size: 10px; color: var(--dim); }
+  #s0 .qmark {
+    position: absolute; left: 50%; top: 150px; transform: translateX(-50%);
+    font-size: 60px; font-weight: 800; color: var(--warn);
+  }
+  #s0.active .qmark { animation: bounce 1.4s ease-in-out infinite; }
+  @keyframes bounce { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(-16px); } }
+  #s0 .fakebtn { margin-top: 30px; }
+  #s0.active .fakebtn { animation: glowpulse 1.4s infinite; }
+  @keyframes glowpulse { 0%,100%{ box-shadow: 0 0 0 0 rgba(90,200,250,.55);} 50%{ box-shadow: 0 0 0 12px rgba(90,200,250,0);} }
+
+  /* ═════════ S1: 꼬리표 부착 ═════════ */
+  #s1 .code {
+    position: absolute; left: 60px; top: 140px; background: #0f141b; border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px 18px; font-family: "SF Mono", ui-monospace, monospace; font-size: 13px; color: var(--accent);
+  }
+  #s1 .code small { display: block; color: var(--dim); font-size: 10px; margin-bottom: 6px; }
+  #s1 .arrow-r { left: 285px; top: 175px; }
+  #s1 .stamper {
+    position: absolute; left: 435px; top: 20px; width: 130px; text-align: center;
+  }
+  #s1 .stamper .machine { font-size: 40px; display: block; }
+  #s1 .stamper .lbl { font-size: 11px; color: var(--dim); }
+  #s1 .elem-box { left: 440px; top: 160px; }
+  #s1 .tag { left: 545px; top: 225px; opacity: 0; }
+  #s1.active .stamper { animation: stampdown 1.6s ease .5s forwards; }
+  @keyframes stampdown { 0%{transform:translateY(0)} 40%{transform:translateY(74px)} 70%{transform:translateY(74px)} 100%{transform:translateY(0)} }
+  #s1.active .tag { animation: tagon .6s ease 1.5s forwards, swing 2.4s ease-in-out 2.1s infinite; }
+  @keyframes tagon { from { opacity: 0; transform: translateY(-14px) rotate(-14deg); } to { opacity: 1; transform: rotate(8deg); } }
+  @keyframes swing { 0%,100% { transform: rotate(8deg); } 50% { transform: rotate(-4deg); } }
+  #s1 .free { position: absolute; left: 620px; top: 150px; color: var(--good); font-size: 13px; opacity: 0; }
+  #s1.active .free { animation: fadein .5s ease 2.4s forwards; }
+  @keyframes fadein { to { opacity: 1; } }
+
+  /* ═════════ S2: React가 버린다 ═════════ */
+  #s2 .door { right: 110px; top: 115px; }
+  #s2 .sign { right: 118px; top: 78px; }
+  #s2 .mover { position: absolute; left: 80px; top: 165px; }
+  #s2 .mover .elem-box { position: relative; left: 0; top: 0; }
+  #s2 .mover .tag { left: 96px; top: 62px; transform: rotate(8deg); }
+  #s2.active .mover { animation: walkin 2.2s ease-in-out .4s forwards; }
+  @keyframes walkin { to { left: 470px; } }
+  #s2.active .mover .elem-box { animation: enterdoor 1s ease 2.8s forwards; }
+  @keyframes enterdoor { to { transform: scale(.25); opacity: 0; } }
+  #s2.active .mover .tag { animation: ripfall 1.4s ease-in 2.6s forwards; }
+  @keyframes ripfall {
+    0% { transform: rotate(8deg) translate(0,0); opacity: 1; }
+    25% { transform: rotate(40deg) translate(18px, 20px); }
+    100% { transform: rotate(150deg) translate(45px, 165px); opacity: .25; }
+  }
+  #s2 .trash { position: absolute; right: 255px; bottom: 26px; font-size: 40px; }
+  #s2 .rip { position: absolute; right: 178px; top: 128px; color: var(--bad); font-size: 13px; font-weight: 700; opacity: 0; }
+  #s2.active .rip { animation: fadein .4s ease 2.7s forwards; }
+  #s2 .v19 { position: absolute; left: 80px; bottom: 24px; color: var(--dim); font-size: 12.5px; opacity: 0; }
+  #s2.active .v19 { animation: fadein .6s ease 3.6s forwards; }
+  #s2 .v19 b { color: var(--bad); }
+
+  /* ═════════ S3: 문 바꿔치기 ═════════ */
+  #s3 .sign { left: 50%; top: 62px; transform: translateX(-50%); font-size: 12px; padding: 6px 16px; }
+  #s3.active .sign { animation: signglow 2s ease 2.2s infinite; }
+  @keyframes signglow { 0%,100%{ border-color: var(--line);} 50%{ border-color: var(--accent); color: var(--accent);} }
+  #s3 .door.react { left: 50%; top: 110px; transform: translateX(-50%); }
+  #s3 .door.ours {
+    left: 50%; top: 110px; transform: translateX(-50%) translateX(-330px); opacity: 0;
+    background: linear-gradient(#1c3a2e, #14261e); border-color: var(--good); color: #9fdcb8;
+  }
+  #s3 .door.ours::before { background: #0d1a13; border-color: #2f6b4a; }
+  #s3.active .door.ours { animation: slidein 1.4s ease .8s forwards; }
+  @keyframes slidein { to { transform: translateX(-50%); opacity: 1; } }
+  #s3 .caption0 { position: absolute; left: 50%; transform: translateX(-50%); bottom: 66px; font-size: 13px; color: var(--dim); }
+  #s3 .caption { position: absolute; left: 50%; transform: translateX(-50%); bottom: 30px; font-size: 14px; color: var(--good); font-weight: 700; opacity: 0; }
+  #s3.active .caption { animation: fadein .5s ease 2s forwards; }
+
+  /* ═════════ S4: 장부 기록 (루프) ═════════ */
+  #s4 .door.ours {
+    left: 380px; top: 105px;
+    background: linear-gradient(#1c3a2e, #14261e); border-color: var(--good); color: #9fdcb8;
+  }
+  #s4 .door.ours::before { background: #0d1a13; border-color: #2f6b4a; }
+  #s4 .door.react { right: 60px; top: 105px; width: 100px; height: 150px; }
+  #s4 .sign { left: 372px; top: 68px; }
+  #s4 .ledger { left: 330px; bottom: 18px; }
+  #s4 .mover { position: absolute; left: -140px; top: 150px; }
+  #s4 .mover .elem-box { position: relative; width: 104px; height: 68px; }
+  #s4 .mover .tag { left: 82px; top: 52px; transform: rotate(8deg); font-size: 10px; }
+  #s4.active .mover { animation: convey 3.2s linear infinite; }
+  @keyframes convey {
+    0% { left: -140px; opacity: 1; }
+    55% { left: 385px; opacity: 1; }
+    82% { left: 705px; opacity: 1; }
+    92% { left: 745px; opacity: 0; }
+    100% { left: 745px; opacity: 0; }
+  }
+  #s4 .flycopy {
+    position: absolute; left: 470px; top: 210px; opacity: 0; z-index: 3;
+  }
+  #s4.active .flycopy { animation: flycopy 3.2s linear infinite; }
+  @keyframes flycopy {
+    0%, 52% { opacity: 0; transform: translate(0,0) scale(.9); }
+    60% { opacity: 1; }
+    76% { opacity: 1; transform: translate(-40px, 82px) scale(.72); }
+    80%, 100% { opacity: 0; transform: translate(-40px, 88px) scale(.7); }
+  }
+  #s4.active .rowi.r1 { animation: rowin .4s ease 2.6s forwards; }
+  #s4.active .rowi.r2 { animation: rowin .4s ease 5.8s forwards; }
+  #s4.active .rowi.r3 { animation: rowin .4s ease 9s forwards; }
+  @keyframes rowin { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  #s4 .quiet { position: absolute; right: 34px; bottom: 24px; width: 200px; font-size: 12px; color: var(--dim); text-align: right; opacity: 0; }
+  #s4.active .quiet { animation: fadein .6s ease 4s forwards; }
+
+  /* ═════════ S5: 클릭 → 장부 조회 ═════════ */
+  #s5 .browser { left: 70px; top: 60px; width: 350px; height: 280px; }
+  #s5 .browser .body > div { margin-bottom: 14px; }
+  #s5 .fakeinput { width: 220px; height: 34px; background: #1a222d; border: 1px solid var(--line); border-radius: 7px; }
+  #s5 .fakelabel { font-size: 12px; color: var(--dim); margin-bottom: 4px; }
+  #s5 .fakebtn { position: relative; }
+  #s5 .overlay {
+    position: absolute; inset: -5px; border: 2px solid var(--accent); border-radius: 10px;
+    background: rgba(90,200,250,.14); opacity: 0;
+  }
+  #s5.active .overlay { animation: fadein .3s ease 1.6s forwards; }
+  #s5 .tooltip {
+    position: absolute; left: 0; top: -40px; background: #06283a; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 7px; padding: 4px 10px;
+    font-family: "SF Mono", ui-monospace, monospace; font-size: 11px; white-space: nowrap; opacity: 0;
+  }
+  #s5.active .tooltip { animation: popin .35s ease 1.9s forwards; }
+  @keyframes popin { from { opacity: 0; transform: translateY(6px) scale(.92); } to { opacity: 1; transform: none; } }
+  #s5 .cursor { position: absolute; left: 640px; top: 330px; font-size: 24px; z-index: 5; }
+  #s5.active .cursor { animation: cursormove 1.6s ease-out forwards; }
+  @keyframes cursormove { to { left: 250px; top: 235px; } }
+  #s5 .ledger { right: 70px; top: 105px; }
+  #s5 .ledger .rowi { opacity: .55; }
+  #s5 .ledger .rowi.match { border-color: var(--good); }
+  #s5.active .rowi.match { animation: rowmatch 1s ease 2.6s 3; }
+  @keyframes rowmatch { 0%,100% { background: #1e2a24; opacity:.55; } 50% { background: #2b5240; opacity: 1; color: #d7ffe3; } }
+  #s5 .link {
+    position: absolute; left: 425px; top: 245px; width: 160px; border-top: 2px dashed var(--good);
+    transform: rotate(-14deg); transform-origin: left; opacity: 0;
+  }
+  #s5.active .link { animation: fadein .4s ease 2.4s forwards; }
+  #s5 .keycap {
+    position: absolute; left: 90px; bottom: 22px; background: var(--panel2); border: 1px solid var(--line);
+    border-bottom-width: 3px; border-radius: 7px; padding: 3px 12px; font-size: 12px; color: var(--dim);
+  }
+
+  /* ═════════ S6: 에디터 점프 ═════════ */
+  #s6 .vscode {
+    position: absolute; left: 50%; top: 46px; transform: translateX(-50%) scale(.6); opacity: 0;
+    width: 560px; height: 300px; background: #0e1218; border: 1.5px solid var(--line); border-radius: 12px; overflow: hidden;
+  }
+  #s6.active .vscode { animation: vsopen .7s cubic-bezier(.2,.9,.3,1.2) .4s forwards; }
+  @keyframes vsopen { to { transform: translateX(-50%) scale(1); opacity: 1; } }
+  #s6 .vsbar { height: 30px; background: var(--panel2); display: flex; align-items: center; padding: 0 12px; font-size: 11px; color: var(--dim); gap: 8px; }
+  #s6 .vsbody { padding: 12px 0; font-family: "SF Mono", ui-monospace, monospace; font-size: 12px; line-height: 1.9; color: #8fa3b8; }
+  #s6 .ln { padding: 0 18px 0 0; display: flex; }
+  #s6 .ln .no { width: 52px; text-align: right; padding-right: 16px; color: #3d4a5a; }
+  #s6 .ln.hlrow { background: rgba(90,200,250,.12); border-left: 3px solid var(--accent); opacity: 0; }
+  #s6.active .ln.hlrow { animation: fadein .4s ease 1.3s forwards; }
+  #s6 .ln .k { color: var(--purple); } #s6 .ln .t { color: var(--accent); } #s6 .ln .s { color: var(--good); }
+  #s6 .caret { display: inline-block; width: 2px; height: 14px; background: #fff; vertical-align: -2px; opacity: 0; }
+  #s6.active .caret { animation: blink 1s step-end 1.6s infinite; }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+  #s6 .cmd { position: absolute; left: 50%; transform: translateX(-50%); bottom: 20px; font-family: "SF Mono", ui-monospace, monospace; font-size: 12px; color: var(--dim); }
+  #s6 .cmd b { color: var(--good); font-weight: 400; }
+
+  /* ═════════ S7: 정리 ═════════ */
+  #s7 .card {
+    position: absolute; top: 70px; width: 360px; background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 14px; padding: 20px 24px; opacity: 0;
+  }
+  #s7 .card h4 { margin: 0 0 8px; font-size: 15px; }
+  #s7 .card p { margin: 0; font-size: 13px; color: var(--dim); line-height: 1.8; }
+  #s7 .card.prod { left: 60px; border-color: #2f6b4a; }
+  #s7 .card.prod h4 { color: var(--good); }
+  #s7 .card.hole { right: 60px; border-color: #6b3a3f; }
+  #s7 .card.hole h4 { color: var(--bad); }
+  #s7.active .card.prod { animation: cardin .55s ease .3s forwards; }
+  #s7.active .card.hole { animation: cardin .55s ease .9s forwards; }
+  @keyframes cardin { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+  #s7 .fin { position: absolute; left: 50%; transform: translateX(-50%); bottom: 44px; font-size: 14px; color: var(--dim); opacity: 0; }
+  #s7.active .fin { animation: fadein .6s ease 1.7s forwards; }
+  #s7 .fin b { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<h1>react-code-locator, 3분 애니메이션</h1>
+<p class="sub">"화면의 이 버튼, 내 코드 몇 번째 줄이야?" 에 답하는 원리 · ← → 키로도 넘길 수 있어요</p>
+
+<div class="stage-wrap">
+<div class="stage" id="stage">
+
+  <!-- S0 -->
+  <div class="scene" id="s0">
+    <div class="browser">
+      <div class="bar"><i></i><i></i><i></i></div>
+      <div class="body" style="text-align:center">
+        <div style="font-size:12px;color:var(--dim);margin-top:6px">우리 서비스 화면</div>
+        <span class="fakebtn">저장</span>
+      </div>
+    </div>
+    <div class="qmark">?</div>
+    <div class="editor">
+      <div>src/ 아래 파일 312개…</div>
+      <div>components/ 폴더 47개…</div>
+      <div>이 버튼은 대체 어디에…</div>
+      <div>Button? SaveButton? Submit…?</div>
+    </div>
+  </div>
+
+  <!-- S1 -->
+  <div class="scene" id="s1">
+    <div class="code"><small>내가 쓴 코드</small>&lt;button&gt;저장&lt;/button&gt;</div>
+    <span class="arrow-r">→</span>
+    <div class="stamper"><span class="machine">🖨️</span><span class="lbl">컴파일러 (빌드 도구)</span></div>
+    <div class="elem-box"><span class="icon">📦</span>button 요소</div>
+    <div class="tag">src/App.tsx : 42줄</div>
+    <div class="free">이미 · 공짜로 · 항상 ✓</div>
+  </div>
+
+  <!-- S2 -->
+  <div class="scene" id="s2">
+    <div class="sign">화면 그리는 곳</div>
+    <div class="door">REACT<span class="knob"></span></div>
+    <div class="mover">
+      <div class="elem-box"><span class="icon">📦</span>button 요소</div>
+      <div class="tag">src/App.tsx : 42줄</div>
+    </div>
+    <div class="rip">꼬리표는 버림!</div>
+    <div class="trash">🗑️</div>
+    <div class="v19">React 19부터는 꼬리표 보관함 자체를 없앴습니다. <b>화면이 그려진 뒤엔 위치 정보가 세상 어디에도 없어요.</b></div>
+  </div>
+
+  <!-- S3 -->
+  <div class="scene" id="s3">
+    <div class="sign">간판: react/jsx-dev-runtime (그대로)</div>
+    <div class="door react">REACT<span class="knob"></span></div>
+    <div class="door ours">우리 창구<span class="knob"></span></div>
+    <div class="caption0">앱 코드는 한 글자도 안 고칩니다 — 문만 몰래 교체</div>
+    <div class="caption">같은 간판, 다른 문 ✓</div>
+  </div>
+
+  <!-- S4 -->
+  <div class="scene" id="s4">
+    <div class="sign">우리 창구</div>
+    <div class="door ours">검문소<span class="knob"></span></div>
+    <div class="door react" style="font-size:11px">REACT<span class="knob"></span></div>
+    <div class="mover">
+      <div class="elem-box"><span class="icon">📦</span>요소</div>
+      <div class="tag">위치</div>
+    </div>
+    <div class="flycopy"><span class="tag" style="position:static">복사본</span></div>
+    <div class="ledger">
+      <div class="lh">📒 장부 (WeakMap)</div>
+      <div class="rowi r1">button → src/App.tsx:42</div>
+      <div class="rowi r2">input → src/Login.tsx:455</div>
+      <div class="rowi r3">form → src/Login.tsx:434</div>
+    </div>
+    <div class="quiet">React는 원래대로 요소를 받습니다.<br/>아무것도 눈치 못 챔 🤫</div>
+  </div>
+
+  <!-- S5 -->
+  <div class="scene" id="s5">
+    <div class="browser">
+      <div class="bar"><i></i><i></i><i></i></div>
+      <div class="body">
+        <div><div class="fakelabel">아이디</div><div class="fakeinput"></div></div>
+        <div><div class="fakelabel">비밀번호</div><div class="fakeinput"></div></div>
+        <div style="margin-top:20px">
+          <span class="fakebtn">저장
+            <span class="overlay"></span>
+            <span class="tooltip">src/App.tsx : 42줄 7칸</span>
+          </span>
+        </div>
+      </div>
+    </div>
+    <div class="cursor">↖</div>
+    <div class="link"></div>
+    <div class="ledger">
+      <div class="lh">📒 장부 (WeakMap)</div>
+      <div class="rowi">form → src/Login.tsx:434</div>
+      <div class="rowi">input → src/Login.tsx:455</div>
+      <div class="rowi match">button → src/App.tsx:42</div>
+      <div class="rowi">label → src/Login.tsx:454</div>
+    </div>
+    <div class="keycap">⇧ shift 누른 채 호버</div>
+  </div>
+
+  <!-- S6 -->
+  <div class="scene" id="s6">
+    <div class="vscode">
+      <div class="vsbar">● src/App.tsx — VS Code</div>
+      <div class="vsbody">
+        <div class="ln"><span class="no">39</span><span class="k">function</span>&nbsp;<span class="t">SaveSection</span>() {</div>
+        <div class="ln"><span class="no">40</span>&nbsp;&nbsp;<span class="k">return</span> (</div>
+        <div class="ln"><span class="no">41</span>&nbsp;&nbsp;&nbsp;&nbsp;&lt;<span class="t">div</span> className=<span class="s">"actions"</span>&gt;</div>
+        <div class="ln hlrow"><span class="no">42</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="caret"></span>&lt;<span class="t">button</span>&gt;저장&lt;/<span class="t">button</span>&gt;</div>
+        <div class="ln"><span class="no">43</span>&nbsp;&nbsp;&nbsp;&nbsp;&lt;/<span class="t">div</span>&gt;</div>
+        <div class="ln"><span class="no">44</span>&nbsp;&nbsp;);</div>
+        <div class="ln"><span class="no">45</span>}</div>
+      </div>
+    </div>
+    <div class="cmd">$ <b>code --goto src/App.tsx:42:7</b> &nbsp;← 개발 서버가 대신 실행</div>
+  </div>
+
+  <!-- S7 -->
+  <div class="scene" id="s7">
+    <div class="card prod">
+      <h4>배포(프로덕션)에서는?</h4>
+      <p>꼬리표도, 우리 문도 <b style="color:var(--good)">애초에 만들어지지 않습니다.</b><br/>배포 번들에 이 도구의 코드는 0바이트 — 비용도 정확히 0.</p>
+    </div>
+    <div class="card hole">
+      <h4>유일하게 안 되는 곳</h4>
+      <p>아주 옛날 빌드 방식(classic) + React 19 조합뿐.<br/>꼬리표를 만들 사람도, 보관할 곳도 없는 조합이라서요.<br/><span style="color:var(--dim);font-size:12px">(옛 프로젝트 대부분은 React ≤18이라 폴백으로 동작 — 실측 완료)</span></p>
+    </div>
+    <div class="fin">끝! 요약: <b>꼬리표를 버리기 전에 장부에 적어두는 것</b>, 그게 전부입니다.</div>
+  </div>
+
+</div>
+</div>
+
+<p class="narration" id="narration"></p>
+
+<div class="controls">
+  <button id="prev">← 이전</button>
+  <div class="dots" id="dots"></div>
+  <button id="next" class="primary">다음 →</button>
+  <button id="auto">▶ 자동 재생</button>
+</div>
+<p class="hint">스페이스바 = 다음 · 점을 눌러 장면 이동</p>
+
+<script>
+const SCENES = [
+  { id: "s0", dur: 4500, text: '궁금한 건 딱 하나예요. <b>"화면의 이 버튼, 내 코드 몇 번째 줄이지?"</b><br/>파일 수백 개를 뒤지는 대신, 클릭 한 번으로 알고 싶다.' },
+  { id: "s1", dur: 5500, text: '비밀 1 — 개발 모드에선 <b>컴파일러가 모든 JSX 조각에 몰래 꼬리표를 붙입니다.</b><br/>"나 src/App.tsx 42번째 줄에서 태어났어요." 이미, 공짜로, 항상.' },
+  { id: "s2", dur: 6500, text: '문제 — React는 요소만 받고 <span class="r">꼬리표는 쓰레기통에 버립니다.</span><br/>화면이 그려질 때쯤이면 위치 정보는 사라지고 없어요.' },
+  { id: "s3", dur: 5000, text: '우리의 한 수 — React로 들어가는 <b>"문"을 통째로 바꿔치기합니다.</b><br/>간판(import 이름)은 그대로, 문만 우리 것. 앱 코드는 한 글자도 안 고쳐요.' },
+  { id: "s4", dur: 11000, text: '이제 모든 요소가 우리 검문소를 지나갑니다. 지나갈 때마다 <span class="g">꼬리표를 장부에 복사</span>해두고,<br/>요소는 원래대로 React에게. React는 아무것도 눈치채지 못합니다.' },
+  { id: "s5", dur: 7000, text: 'shift를 누르고 요소 위에 올리면 — 그 요소를 열쇠 삼아 <span class="g">장부를 펼칩니다.</span><br/>찾았다! <b>src/App.tsx 42번째 줄.</b>' },
+  { id: "s6", dur: 5500, text: '클릭 한 번, <b>VS Code가 정확히 그 줄에서 열립니다.</b>' },
+  { id: "s7", dur: 9000, text: '이게 전부입니다 — <b>버려질 꼬리표를 버리기 전에 장부에 적어두는 것.</b>' },
+];
+
+let cur = 0, auto = false, timer = null;
+const dotsEl = document.getElementById("dots");
+SCENES.forEach((s, i) => {
+  const d = document.createElement("div");
+  d.className = "dot"; d.onclick = () => { stopAuto(); go(i); };
+  dotsEl.appendChild(d);
+});
+
+function go(i) {
+  cur = (i + SCENES.length) % SCENES.length;
+  document.querySelectorAll(".scene").forEach(s => s.classList.remove("active"));
+  // 강제 리플로우로 애니메이션 리셋
+  void document.getElementById(SCENES[cur].id).offsetWidth;
+  document.getElementById(SCENES[cur].id).classList.add("active");
+  document.getElementById("narration").innerHTML = SCENES[cur].text;
+  document.querySelectorAll(".dot").forEach((d, j) => d.classList.toggle("on", j === cur));
+  if (auto) scheduleNext();
+}
+function scheduleNext() {
+  clearTimeout(timer);
+  timer = setTimeout(() => {
+    if (cur === SCENES.length - 1) { stopAuto(); return; }
+    go(cur + 1);
+  }, SCENES[cur].dur);
+}
+function stopAuto() { auto = false; clearTimeout(timer); document.getElementById("auto").textContent = "▶ 자동 재생"; }
+
+document.getElementById("prev").onclick = () => { stopAuto(); go(cur - 1); };
+document.getElementById("next").onclick = () => { stopAuto(); go(cur + 1); };
+document.getElementById("auto").onclick = function () {
+  auto = !auto;
+  this.textContent = auto ? "⏸ 멈춤" : "▶ 자동 재생";
+  if (auto) { if (cur === SCENES.length - 1) go(0); else scheduleNext(); }
+  else clearTimeout(timer);
+};
+document.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); stopAuto(); go(cur + 1); }
+  if (e.key === "ArrowLeft") { stopAuto(); go(cur - 1); }
+});
+
+go(0);
+</script>
+</body>
+</html>

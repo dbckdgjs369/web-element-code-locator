@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>React 개발서버 라이프사이클 — 어디에 끼어들 수 있나</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel2: #1c2129;
+    --line: #2a3038;
+    --fg: #d7dde5;
+    --dim: #8b949e;
+    --accent: #5ac8fa;
+    --warn: #f0a020;
+    --good: #56d364;
+    --bad: #f2626b;
+    --code: #c9d1d9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", sans-serif;
+    line-height: 1.75;
+    font-size: 15.5px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 56px 28px 140px; }
+
+  h1 { font-size: 30px; letter-spacing: -0.02em; margin: 0 0 6px; }
+  .sub { color: var(--dim); margin: 0 0 44px; font-size: 15px; }
+
+  h2 {
+    font-size: 21px;
+    margin: 60px 0 4px;
+    padding-top: 26px;
+    border-top: 1px solid var(--line);
+    letter-spacing: -0.01em;
+  }
+  h2 .n { color: var(--accent); font-variant-numeric: tabular-nums; margin-right: 10px; }
+  h3 { font-size: 16.5px; margin: 34px 0 8px; color: #fff; }
+  h3 .step {
+    display: inline-block; min-width: 34px;
+    color: var(--dim); font-weight: 400; font-variant-numeric: tabular-nums;
+  }
+  p { margin: 10px 0; }
+  ul { margin: 10px 0; padding-left: 20px; }
+  li { margin: 5px 0; }
+  code {
+    background: #21262d; padding: 1.5px 5px; border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.88em; color: var(--code);
+  }
+  pre {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 15px 17px; overflow-x: auto; margin: 14px 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px; line-height: 1.65; color: var(--code);
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  .flow {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 20px 22px; margin: 18px 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px; line-height: 1.95; white-space: pre; overflow-x: auto;
+  }
+  .flow .hook { color: var(--warn); font-weight: 600; }
+  .flow .hot  { color: var(--good); font-weight: 600; }
+  .flow .note { color: var(--dim); }
+  .flow .kill { color: var(--bad); }
+
+  table { border-collapse: collapse; width: 100%; margin: 18px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 9px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--panel2); font-weight: 600; color: #fff; }
+  td code { font-size: 0.86em; }
+  .yes { color: var(--good); }
+  .no  { color: var(--bad); }
+  .mid { color: var(--warn); }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: rgba(90, 200, 250, 0.06);
+    padding: 13px 18px; margin: 20px 0; border-radius: 0 6px 6px 0;
+  }
+  .callout.warn { border-color: var(--warn); background: rgba(240, 160, 32, 0.07); }
+  .callout.bad  { border-color: var(--bad);  background: rgba(242, 98, 107, 0.07); }
+  .callout p:first-child { margin-top: 0; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout .label {
+    display: block; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--dim); margin-bottom: 4px;
+  }
+
+  .tag {
+    display: inline-block; padding: 1px 8px; border-radius: 20px;
+    font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em;
+    border: 1px solid currentColor; margin-right: 6px;
+  }
+  .tag.vite { color: #c07af0; }
+  .tag.next { color: #7ac3f0; }
+
+  .lead { color: var(--dim); font-size: 14.5px; margin: 2px 0 20px; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 44px 0; }
+  .foot { color: var(--dim); font-size: 13px; margin-top: 60px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>React 개발서버가 뜰 때 실제로 일어나는 일</h1>
+<p class="sub">그리고 소스 위치를 얻기 위해 어디에 끼어들 수 있는가 — react-code-locator v2 설계 노트</p>
+
+<div class="callout">
+  <span class="label">한 줄 요약</span>
+  <p>부팅 시점에 컴파일이 <strong>아예 없는 건 아니다</strong> — 설정 파일, 의존성 사전 번들, 그리고 import 수집용 소스 스캔은 일어난다.
+  하지만 <strong>서빙용 변환(<code>transform</code>)은 0회다</strong>(1.3에서 실측). 실제 변환은 브라우저가 모듈을 요청한 뒤에야 일어난다.</p>
+  <p>그래서 "부팅 때 한 번 끼어든다"는 그림은 성립하지 않고, <strong>모듈 파이프라인에 상주해야</strong> 한다.</p>
+</div>
+
+<h2><span class="n">0</span>전체 지도</h2>
+<p class="lead">★ 표시가 개입 가능한 지점. 굵은 것이 v2가 실제로 쓰는 지점이다.</p>
+
+<div class="flow">┌─ 프로세스 ────────────────────────────────────────────────────┐
+│  node → 설정 파일 로드 → 플러그인 배열 확정        <span class="hook">★ A</span>       │
+│  (다른 훅을 여는 열쇠. 여기서 못 끼면 이후 전부 막힘)         │
+└───────────────────────────────────────────────────────────────┘
+             ↓  listen()  —  <span class="note">여기까지 사용자 파일 변환 0건</span>
+┌─ 브라우저가 요청해야 비로소 시작 ─────────────────────────────┐
+│                                                               │
+│   GET /src/App.tsx                                            │
+│        ↓                                                      │
+│   resolveId   ─ 어느 파일인가                     <span class="hot">★ C</span>       │
+│        ↓        <span class="note">(모듈 치환. react/jsx-dev-runtime → 우리 것)</span>   │
+│   load        ─ 문자열로 읽기                                 │
+│        ↓                                                      │
+│   transform                                                   │
+│     ├ plugin-react ─ Babel 파싱 → <span class="hot">AST</span> → codegen  <span class="hot">★ D</span>       │
+│     │                 <span class="note">이미 만들어진 AST에 올라탐 = 재파싱 0</span>     │
+│     └ 우리 plugin  ─ 문자열만 받음                <span class="hook">★ E</span>       │
+│                       <span class="kill">직접 파싱해야 함 = 재파싱 1  (v1의 방식)</span>   │
+└───────────────────────────────────────────────────────────────┘
+             ↓  변환된 JS를 브라우저로
+┌─ 브라우저 런타임 ─────────────────────────────────────────────┐
+│   jsxDEV(type, props, key, isStatic, <span class="hot">__source</span>, self) <span class="hot">★ G</span>       │
+│        ↓        <span class="note">컴파일러가 계산해 넣어둔 위치가 5번째 인자</span>      │
+│   React가 Fiber 생성  <span class="kill">← 여기서 __source를 버린다</span>               │
+│        ↓                                                      │
+│   commit → DOM                                                │
+│        ↓                                                      │
+│   사용자가 hover → 우클릭 → 위치 조회             <span class="hook">★ H</span>       │
+│                       <span class="note">(스택+소스맵 역추적. 근사치)</span>              │
+└───────────────────────────────────────────────────────────────┘</div>
+
+<hr />
+
+<h2><span class="n">1</span>Vite <span class="tag vite">@vitejs/plugin-react</span></h2>
+
+<h3><span class="step">1.1</span>프로세스 부팅 — 설정 확정</h3>
+<p><code>vite</code> 명령이 뜨면 <code>createServer()</code>가 순서대로 이걸 한다.</p>
+<pre><code>vite.config.ts 로드 (esbuild로 즉석 번들 → 실행)
+   ↓
+플러그인 배열 평탄화, enforce(pre / 없음 / post)로 정렬
+   ↓
+각 플러그인의 config(config, env) 훅 호출     ← 설정을 고칠 마지막 기회
+   ↓
+설정 병합 확정 (ResolvedConfig)
+   ↓
+각 플러그인의 configResolved(config) 훅 호출  ← 읽기만. 고치면 안 됨
+   ↓
+플러그인 컨테이너 생성 → buildStart()
+   ↓
+configureServer(server) 훅 호출               ← 미들웨어 등록
+</code></pre>
+
+<div class="callout warn">
+  <span class="label">실측으로 알게 된 것</span>
+  <p><code>config()</code>에서 <strong>plugin-react의 옵션 객체를 직접 고치는 건 안 통한다.</strong>
+  plugin-react가 자기 옵션을 클로저에 캡처해버리기 때문이다.</p>
+  <p>대신 공식 확장점이 있다 — plugin-react는 <code>config.plugins</code> 전체를 훑어
+  <code>plugin.api.reactBabel</code>을 가진 플러그인을 모으고, 자기 Babel 옵션을 넘겨 호출한다.
+  우리는 여기에 Babel visitor를 심는다. 사용자는 <code>react({ babel: … })</code>를 쓸 필요가 없다.</p>
+</div>
+
+<h3><span class="step">1.2</span>의존성 사전 번들 (optimizeDeps) — 사전 컴파일은 있다</h3>
+<p>"브라우저가 뜨기 전엔 아무것도 컴파일 안 한다"는 틀렸다. 세 가지가 컴파일된다.</p>
+<ul>
+  <li><strong><code>vite.config.ts</code> 자체</strong> — esbuild로 즉석 번들해서 실행한다.</li>
+  <li><strong>스캐너가 사용자 소스를 파싱한다</strong> — entry(<code>index.html</code>)에서 esbuild로 import 그래프를 훑는다.
+      목적은 딱 하나, <strong>bare import 특정 수집</strong>(<code>react</code>, <code>lodash</code> …). 결과물은 버린다.</li>
+  <li><strong>수집된 <code>node_modules</code> 패키지를 실제로 번들해 디스크에 쓴다</strong> — CJS→ESM 변환과 요청 수 폭발 방지.</li>
+</ul>
+<p>즉 <strong>사전 번들의 대상은 라이브러리다.</strong> 당신의 <code>src/**</code>는 스캔만 당하고, 서빙용 변환은 겪지 않는다.</p>
+
+<h3><span class="step">1.3</span>listen — 그리고 정지</h3>
+<p>서버가 포트를 열고 <strong>멈춘다.</strong> <code>playground/vite/probe-boot.mjs</code>가
+서버를 띄운 뒤 <strong>HTTP 요청을 단 한 건도 보내지 않고</strong> 4초를 기다려 실측한 결과:</p>
+<pre><code>   22ms  listen       ← 이후 요청 0건
+   38ms  resolveId    index.html
+   40ms  resolveId    /src/main.tsx
+   43ms  resolveId    ./App                ← 사용자 소스를 파싱해서 알아낸 것
+   44ms  resolveId    react/jsx-runtime
+   46ms  resolveId    react
+ 4021ms  4초 경과
+
+transform 훅 총 호출: 0
+그중 사용자 소스(src/**): 0
+
+node_modules/.vite/deps_temp_405c952c — 15 files
+  react.js  react-dom.js  react-dom_client.js  react_jsx-dev-runtime.js  chunk-*.js …</code></pre>
+
+<div class="callout warn">
+  <span class="label">실측에서 읽어야 할 것 세 개</span>
+  <p><strong>1. <code>transform</code>이 0회다.</strong> 사용자 소스가 plugin-react의 Babel을 타는 일은 요청 전에 없다.
+  <strong>훅 D·E는 부팅 시점에 발동할 수 없다</strong> — 끼어들 파싱 자체가 존재하지 않는다.</p>
+  <p><strong>2. 훅 C는 부팅 시점에도 발동한다.</strong> <code>resolveId</code> 로그가 증거다 —
+  스캐너도 플러그인 <code>resolveId</code>를 태운다. 예상 밖이었지만 무해하다(스캔 결과는 서빙에 쓰이지 않는다).</p>
+  <p><strong>3. 사전 번들 결과는 <code>deps/</code>가 아니라 <code>deps_temp_*</code>에 있다.</strong>
+  커밋 시점에 <code>deps/</code>로 rename되고, 서버를 닫으면 temp가 정리된다.
+  그래서 <code>close()</code> 뒤에 <code>deps/</code>를 보면 비어 있고, "사전 번들이 없다"고 잘못 읽게 된다.</p>
+</div>
+
+<h3><span class="step">1.4</span>첫 요청 — HTML</h3>
+<pre><code>GET /
+  → index.html 읽기
+  → transformIndexHtml 훅          ← 스크립트 주입 지점 (우리 클라이언트 런타임)
+  → &lt;script type="module" src="/src/main.tsx"&gt; 를 본 브라우저가 다시 요청
+</code></pre>
+
+<h3><span class="step">1.5</span>모듈 파이프라인 — 요청 하나당 한 바퀴</h3>
+<pre><code>GET /src/main.tsx
+   ↓
+resolveId(id, importer)        ★ C  어느 실제 파일로 볼 것인가
+   ↓                                여기서 다른 모듈로 갈아치울 수 있다
+load(id)                            디스크에서 문자열로
+   ↓
+transform(code, id)                 enforce 순서대로 체인
+   ↓
+결과 캐시 + 브라우저로 전송
+</code></pre>
+
+<div class="callout">
+  <span class="label">훅 C를 쓰는 이유</span>
+  <p><code>react/jsx-dev-runtime</code> 요청이 들어오면 우리 모듈로 돌린다.
+  대안인 <code>jsxImportSource</code>(tsconfig 설정)와 비교하면 —
+  <strong>사용자 설정 파일을 안 건드리고</strong>, emotion·theme-ui가 이미 그 자리를 점유했을 때 충돌하지 않는다.
+  우리 모듈 자신의 import는 importer를 검사해 통과시켜 순환을 막는다.</p>
+</div>
+
+<h3><span class="step">1.6</span>plugin-react 내부에서 벌어지는 일</h3>
+<p>여기가 핵심이다. plugin-react는 <strong>JSX 변환을 자기가 하지 않는다.</strong></p>
+<pre><code>plugin-react의 config() 반환값:
+    { esbuild: { jsx: "automatic" } }     ← JSX 변환은 esbuild에 위임
+
+plugin-react의 transform():
+    Babel 실행
+      ├ TypeScript 문법 제거
+      ├ fast-refresh 프리앰블 주입   ← 파일 맨 앞에 약 19줄
+      └ 우리 visitor (api.reactBabel)  ★ D   ← AST를 그대로 받는다
+    ↓ codegen → 문자열
+    ↓
+Vite 내장 esbuild transform
+      └ JSX → jsxDEV(...) 변환, __source 계산</code></pre>
+
+<div class="callout bad">
+  <span class="label">실측 — 설계를 뒤집은 발견</span>
+  <p>Babel이 프리앰블 <strong>19줄을 앞에 붙인 뒤에</strong> esbuild가 JSX를 변환한다.
+  esbuild는 자기가 받은 문자열 기준으로 줄을 세므로, <code>__source.lineNumber</code>가 <strong>정확히 19줄 밀린다.</strong>
+  (실제 5번째 줄 → <code>lineNumber: 24</code>)</p>
+  <p>"컴파일러가 계산한 값이니 정확하다"는 전제는 틀렸다. 정확한 조건은 따로 있다 —
+  <strong>파싱과 JSX 변환 사이에 코드가 움직이지 않을 것.</strong>
+  Next의 SWC는 한 패스라 만족하고, Vite의 Babel→esbuild 파이프라인은 만족하지 않는다.</p>
+  <p>그래서 Vite에서는 훅 D가 JSX 위치까지 담당한다. AST의 원본 <code>loc</code>을 쓰므로 구조적으로 밀릴 수 없다.</p>
+</div>
+
+<h3><span class="step">1.7</span>브라우저 실행 — 폭포수</h3>
+<p><code>main.tsx</code>가 실행되며 자기 import를 요청하고, 그게 또 자기 import를 요청한다.
+<strong>도달한 모듈만</strong> 1.5의 파이프라인을 탄다. 안 열어본 lazy 라우트는 서버가 존재조차 모른다.</p>
+
+<h3><span class="step">1.8</span>HMR</h3>
+<pre><code>파일 저장 → chokidar 감지 → 모듈 그래프에서 영향받는 모듈 계산
+  → 해당 모듈만 transform 재실행 (★ C·D 다시 발동)
+  → WebSocket으로 브라우저에 push → 그 모듈만 재실행 → 리렌더 (★ G 다시 발동)</code></pre>
+<p>즉 훅 C·D·G는 일회성이 아니라 <strong>편집할 때마다 다시 돈다.</strong> 그래서 비용이 싸야 한다.</p>
+
+<hr />
+
+<h2><span class="n">2</span>Next.js <span class="tag next">webpack · Turbopack</span></h2>
+
+<h3><span class="step">2.1</span>공통 부팅</h3>
+<pre><code>next dev
+  → next.config.js 로드          ★ A   여기가 유일한 개입 창구
+  → 라우트 매니페스트 구성 (파일시스템 스캔 — 파싱 아님, 경로만)
+  → listen
+</code></pre>
+<p>Vite와 마찬가지로 부팅 시점에 컴포넌트 코드를 파싱하지 않는다.
+차이는 <strong>지연 단위가 모듈이 아니라 라우트</strong>라는 점이다.</p>
+
+<h3><span class="step">2.2</span>webpack 모드 — on-demand entry</h3>
+<pre><code>GET /about
+  → on-demand entry handler: "/about 엔트리를 지금 만들어라"
+  → webpack 컴파일 시작
+      resolve  (resolve.alias 적용)         ★ C
+      loader   (next-swc-loader)            ★ E 자리이지만
+        └ SWC: 파싱 → 변환 → codegen  ─ 한 패스, Rust 내부
+      ↓
+  → 청크 완성 → 응답</code></pre>
+
+<div class="callout bad">
+  <span class="label">webpack 모드의 함정</span>
+  <p>App Router는 top-level <code>resolve.alias</code>가 아니라
+  <strong>module rule 레이어별 <code>resolve.alias</code></strong>로 React를 해석한다
+  (<code>app-pages-browser</code>, <code>react-server-components</code> …). 그리고 rule 단위가 top-level을 이긴다.</p>
+  <p>따라서 <code>module.rules</code> / <code>oneOf</code> / <code>rules</code>를 <strong>재귀로 훑어 각 rule에도</strong> alias를 넣어야 한다.</p>
+</div>
+
+<h3><span class="step">2.3</span>Turbopack 모드</h3>
+<p>v1이 죽었던 자리다. <code>next.config.js</code>의 <code>webpack()</code> 훅을 <strong>호출하지 않는다.</strong>
+에러도 경고도 없이 그냥 아무 일도 안 일어난다 — 가장 나쁜 실패 방식이다.</p>
+<p>대신 <code>turbopack.resolveAlias</code>가 있고, 이걸로 뚫린다. 단 제약이 세 겹이다.</p>
+<table>
+  <tr><th style="width:32%">제약</th><th>증상</th><th style="width:30%">해법</th></tr>
+  <tr>
+    <td>절대 경로 거부</td>
+    <td><code>server relative imports are not implemented yet</code><br />
+        경로 앞에 <code>.</code>을 붙여버려 <code>./Users/…</code>가 되고 해석 실패</td>
+    <td>alias 값도, 생성한 shim 내부의 <code>require()</code>도 전부 상대 경로</td>
+  </tr>
+  <tr>
+    <td>프로젝트 루트 밖 참조 거부</td>
+    <td>npm-link·모노레포 호이스팅이면 우리 패키지가 루트 밖</td>
+    <td>래퍼를 shim 옆으로 복사해 자기 형제만 참조하게</td>
+  </tr>
+  <tr>
+    <td>vendored React</td>
+    <td>Next는 <code>next/dist/compiled/react</code>를 앱에 연결한다.
+        프로젝트의 평범한 <code>react</code>를 감싸면 React 내부 상태가 두 인스턴스로 갈려
+        첫 렌더에서 <code>recentlyCreatedOwnerStacks</code> of undefined로 죽는다</td>
+    <td>vendored 사본을 우선 후보로</td>
+  </tr>
+</table>
+
+<h3><span class="step">2.4</span>SWC와 훅 D의 부재</h3>
+<p>Next는 SWC로 컴파일한다. SWC는 <strong>JavaScript 플러그인을 받지 않는다.</strong>
+Rust로 짠 Wasm 플러그인만 받고, 그건 <code>swc_core</code> ABI가 호스트 SWC 버전과 정확히 맞아야 하며
+안 맞으면 빌드가 죽는다 — Next 마이너 버전마다 재빌드·재배포가 필요해진다.</p>
+<p>그래서 Next에서는 훅 D가 불가능하고, <strong>컴포넌트 정의 위치</strong>를 얻을 수 없다.
+JSX 호출 위치는 훅 G로 정상 동작한다. 실측 결과 SWC의 <code>__source</code> 줄 번호는
+webpack·Turbopack 양쪽 다 정확했다 — 파싱부터 JSX 변환까지 한 패스라 코드가 움직이지 않기 때문이다.</p>
+
+<hr />
+
+<h2><span class="n">3</span>브라우저 런타임 — 정보가 사라지는 순간</h2>
+
+<pre><code>// 컴파일 결과 (Babel·SWC 공통, dev 모드)
+jsxDEV(Button, { onClick: x }, void 0, false,
+       { fileName: "src/App.tsx", lineNumber: 42, columnNumber: 7 },   // ← 여기 있다
+       this)</code></pre>
+
+<div class="flow">jsxDEV 호출               <span class="hot">★ G  __source가 살아있는 유일한 순간</span>
+    ↓
+React element 생성        <span class="note">{ type, props, key, … }</span>
+    ↓
+Fiber 생성                <span class="kill">React 19가 __source를 버린다 (_debugSource 제거)</span>
+    ↓
+commit → DOM
+    ↓
+    …  시간 경과  …
+    ↓
+사용자가 hover → 우클릭    <span class="note">이 시점에 손에 쥔 것:</span>
+                          <span class="note">· DOM 노드      → 소스와 무관</span>
+                          <span class="note">· Fiber         → type·props·return 있음, 위치 필드 없음</span>
+                          <span class="note">· fiber.type    → 컴포넌트 함수 객체.</span>
+                          <span class="note">                  JS에는 함수의 정의 위치를 읽는 표준 API가 없다</span></div>
+
+<div class="callout">
+  <span class="label">그래서 WeakMap이 필요하다</span>
+  <p>화면에 떠 있다는 건 <strong>렌더가 이미 끝났다</strong>는 뜻이다. 클릭 시점에는 가로챌 흐름 자체가 없다.
+  <code>__source</code> 객체는 <code>jsxDEV</code>가 리턴하는 순간 참조가 끊긴다.</p>
+  <p>훅 G는 "미리 해두는 여분의 일"이 아니라 <strong>그 사실이 존재하는 유일한 순간에 받아 적는 일</strong>이고,
+  레지스트리(<code>WeakMap</code>)는 캐시가 아니라 <strong>렌더 시점과 클릭 시점을 잇는 다리</strong>다.</p>
+  <p>키를 <code>element.props</code>로 잡으므로, 언마운트되어 그 객체가 버려지면 항목도 함께 GC된다.
+  결과적으로 <strong>화면에 살아있는 것만</strong> 메모리에 남는다.</p>
+</div>
+
+<hr />
+
+<h2><span class="n">4</span>훅 지점 정리</h2>
+
+<table>
+  <tr>
+    <th style="width:6%">훅</th><th style="width:20%">받는 것</th>
+    <th style="width:9%">재파싱</th><th style="width:23%">커버리지</th><th>얻는 정보 / 판단</th>
+  </tr>
+  <tr>
+    <td><strong>A</strong></td><td>설정 객체</td><td class="yes">—</td><td>전부</td>
+    <td>정보는 없다. 다른 훅을 여는 <strong>열쇠</strong>. v1이 Turbopack에서 죽은 것도 이 열쇠를 webpack 쪽만 잡았기 때문</td>
+  </tr>
+  <tr>
+    <td><strong>C</strong></td><td>모듈 요청</td><td class="yes">—</td><td>Vite · webpack · Turbopack</td>
+    <td>훅 G를 켜는 수단. <span class="yes">채택</span> — 사용자 tsconfig를 안 건드려 <code>jsxImportSource</code>보다 낫다</td>
+  </tr>
+  <tr>
+    <td><strong>D</strong></td><td>AST (<code>loc</code> 포함)</td><td class="yes">0</td><td>Babel 쓰는 환경만 (Vite)</td>
+    <td><strong>컴포넌트 정의 위치</strong> + Vite에서는 JSX 위치까지. <span class="yes">채택</span></td>
+  </tr>
+  <tr>
+    <td>E</td><td>문자열</td><td class="no">1</td><td>거의 전부</td>
+    <td>전부 얻지만 비싸다. <span class="no">v1의 방식 — v2는 이 경로가 아예 없다</span></td>
+  </tr>
+  <tr>
+    <td><strong>G</strong></td><td><code>__source</code></td><td class="yes">0</td><td>automatic runtime 전부</td>
+    <td><strong>JSX 호출 위치</strong>. <span class="yes">채택</span> — 단 정확도는 파이프라인에 의존(1.6 참고)</td>
+  </tr>
+  <tr>
+    <td>H</td><td>스택 + 소스맵</td><td class="yes">0</td><td>전부</td>
+    <td>근사치. <span class="mid">미채택</span> — 정확한 값을 버리고 근사치를 얻는 교환이 된다</td>
+  </tr>
+</table>
+
+<h3>D와 G는 경쟁이 아니라 분업이다</h3>
+<ul>
+  <li><strong>JSX 호출 위치</strong> — 컴파일러가 이미 계산해준다 → 훅 G</li>
+  <li><strong>컴포넌트 정의 위치</strong> — <code>const Card = memo(…)</code>가 몇 번째 줄인지는
+      <strong>어떤 컴파일러도 계산해주지 않는다.</strong> AST를 직접 봐야 안다 → 훅 D</li>
+</ul>
+<p>둘은 같은 레지스트리에 쓰고, 훅 D의 결과가 바깥에서 실행되므로(<code>__rcl(jsxDEV(…))</code>)
+정확한 값이 근사값을 자연스럽게 덮어쓴다.</p>
+
+<hr />
+
+<h2><span class="n">5</span>현재 검증 상태</h2>
+<table>
+  <tr><th style="width:34%">환경</th><th>JSX 위치</th><th>컴포넌트 정의 위치</th><th>검증 방법</th></tr>
+  <tr><td>Vite + <code>@vitejs/plugin-react</code></td><td class="yes">됨 (D)</td><td class="yes">됨 (D)</td><td>실제 Chromium 렌더</td></tr>
+  <tr><td>Next.js — webpack</td><td class="yes">됨 (G)</td><td class="no">안 됨</td><td><code>next dev</code> 실측</td></tr>
+  <tr><td>Next.js — <strong>Turbopack</strong></td><td class="yes">됨 (G)</td><td class="no">안 됨</td><td><code>next dev --turbopack</code> 실측</td></tr>
+  <tr><td>Vite + <code>plugin-react-swc</code></td><td class="mid">미검증</td><td class="no">안 됨</td><td>—</td></tr>
+  <tr><td>classic runtime (<code>React.createElement</code>)</td><td class="no">안 됨</td><td class="mid">미검증</td><td>—</td></tr>
+</table>
+
+<p class="foot">react-code-locator v2 — docs/lifecycle.html</p>
+
+</div>
+</body>
+</html>
