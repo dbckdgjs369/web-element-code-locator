@@ -9,24 +9,33 @@ v2에는 재파싱 경로가 아예 없다 — 컴파일러가 이미 계산해�
 
 ## 상태
 
-프로토타입. npm 미배포.
+npm에 배포됨: `npm install -D react-code-locator` (1.0.2). 의존성 0개.
 
 핵심 질문은 하나다: **"이 엘리먼트를 만든 내 코드가 어디인가"** (JSX 호출 위치).
 컴포넌트 *정의* 위치(Alt+2)는 부가 기능으로 강등했다 — Vite에서만 나오고, 없어도 위 질문에는 답한다.
 
+아래 표는 전부 실제 브라우저 렌더로 실측한 결과다. 추론으로 적은 행이 없다.
+
 | 환경 | JSX 위치 | 검증 |
 |---|---|---|
 | Vite + `@vitejs/plugin-react` | 됨 | 실제 Chromium 렌더 |
-| Next.js — webpack | 됨 (서버 컴포넌트 포함) | `next dev` 실측 |
-| Next.js — **Turbopack** | 됨 (서버 컴포넌트 포함) | `next dev --turbopack` 실측 |
-| webpack 단독 | 됨 | 번들 실측 (`playground/bundlers`) |
+| Next.js 15·16 — webpack | 됨 (서버 컴포넌트 포함) | `next dev` 실측 |
+| Next.js 15·16 — **Turbopack** | 됨 (서버 컴포넌트 포함) | `next dev --turbopack` 실측 |
+| webpack 단독 (CRA 포함) | 됨 | 번들 실측 + 실서비스 앱(React 17 + webpack 5 + styled-components) |
 | **rspack** | 됨 | 번들 실측 |
 | **rollup** | 됨 | 번들 실측 |
 | **esbuild** | 됨 | 번들 실측 |
+| classic runtime + React ≤18 (Babel dev) | 됨 — `fiber._debugSource` 폴백, 절대 경로로 나온다 | React 18 실측 |
+| classic runtime + **React 19** | **안 됨** — 조용히 null (앱은 멀쩡) | React 19 실측 |
+| `React.createElement`/`cloneElement` 직접 호출 | △ — 가장 가까운 JSX 조상 위치가 나온다 | 실측 |
 | Vite + `plugin-react-swc` | 미검증 | — |
-| classic runtime (`React.createElement`) | 안 됨 | — |
 
 **Turbopack이 동작한다.** v1의 가장 큰 제약이었다(`webpack()` 훅이 호출되지 않아 에러도 경고도 없이 아무 일도 일어나지 않았다).
+
+classic + React 19 조합이 유일한 구멍이다. classic transform은 `react/jsx-dev-runtime`을
+아예 import하지 않아 가로챌 지점이 없고, React 19는 `_debugSource`를 삭제했다.
+
+프로덕션 빌드에는 0바이트다 — 모든 훅이 dev 전용 경로(`jsx-dev-runtime`)에만 붙는다.
 
 ## 쓰는 법
 
@@ -110,9 +119,27 @@ Shift를 누른 채로 — 커서 아래 엘리먼트가 하이라이트되고, 
 `Alt+2`는 Babel이 있는 환경(Vite)에서만 자기 값을 가진다 — 아래 훅 D 설명 참고.
 
 "Open in editor"가 때리는 엔드포인트는 감지한 개발서버에 따라 갈린다.
-Vite는 이 패키지가 심는 `/__open-in-editor`, Next는 Next가 자체 에러 오버레이용으로
-이미 갖고 있는 `/__nextjs_launch-editor`. 응답이 200이 아니면 콘솔에 남긴다 —
-조용히 아무 일도 안 일어나는 게 v1의 최악 실패였다.
+Next는 자체 에러 오버레이용으로 이미 갖고 있는 `/__nextjs_launch-editor`,
+나머지(Vite·webpack·미지 서버)는 전부 `/__open-in-editor` — Vite에선 이 패키지가 심고,
+webpack 계열에선 앱이 `openInEditorMiddleware`를 마운트했을 때 존재한다. 있는지 없는지
+페이지에서 알 수 없으므로 **일단 보낸다**. 404면 토스트로 보고한다 — 조용히 아무 일도
+안 일어나는 게 v1의 최악 실패였다. (webpack dev 서버는 전역 `webpackChunk*` 키로
+감지하되, Next도 밑은 webpack이라 Next 판정이 먼저다.)
+
+### 에디터 선택
+
+서버 쪽이 여는 에디터는 이 순서로 정한다:
+
+1. `openInEditorMiddleware({ editor })` 명시 옵션, 또는 `REACT_CODE_LOCATOR_EDITOR` 환경변수
+2. `$VISUAL` / `$EDITOR` — 단, **vi·vim·nano 같은 터미널 에디터면 건너뛴다.**
+   dev 서버가 detached로 spawn하면 붙을 TTY가 없어 아무것도 화면에 안 뜨기 때문이다
+   (`$EDITOR=vi`는 매우 흔한 설정이라 이게 "눌러도 무반응"의 단골 원인이었다)
+3. 실행 중인 GUI 에디터 자동 탐지 — VS Code(Insiders/Codium/Cursor/Windsurf 포함),
+   JetBrains 전 제품군, Sublime, Zed
+4. `code`
+
+뭘 골랐는지 서버 콘솔에 한 줄 남기고, 에디터 CLI가 PATH에 없으면(spawn ENOENT)
+그것도 콘솔에 해결법과 함께 찍는다.
 
 ## 훅 두 개가 담당하는 정보가 다르다
 
