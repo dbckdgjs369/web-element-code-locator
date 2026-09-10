@@ -392,9 +392,9 @@ export function enableLocator(options: LocatorOptions = {}): () => void {
       if (!result) return;
       highlight.hide();
 
-      const request = openInEditor ? editorRequestFor(result.source) : null;
-      const onOpen = request
+      const onOpen = openInEditor
         ? () => {
+            const request = editorRequestFor(result.source);
             void fetch(request.url).then(
               (response) => {
                 // v1's worst bug was a swallowed 404 that looked like a no-op. Say so.
@@ -415,10 +415,6 @@ export function enableLocator(options: LocatorOptions = {}): () => void {
         ? `${result.source}  (no distinct ${mode} location)`
         : result.source;
       menu.show(event.clientX, event.clientY, result.source, onOpen, label);
-
-      if (openInEditor && !request) {
-        showToast("[react-code-locator] Unknown dev server — cannot open editor");
-      }
     });
   };
 

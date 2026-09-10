@@ -1,6 +1,6 @@
 {
   "name": "react-code-locator",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "type": "module",
   "description": "Jump from a rendered element to its source, without re-parsing your code",
   "main": "./dist/index.cjs",
