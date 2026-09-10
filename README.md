@@ -15,12 +15,15 @@ npm에 배포됨: `npm install -D react-code-locator` (1.0.2). 의존성 0개.
 컴포넌트 *정의* 위치(Alt+2)는 부가 기능으로 강등했다 — Vite에서만 나오고, 없어도 위 질문에는 답한다.
 
 아래 표는 전부 실제 브라우저 렌더로 실측한 결과다. 추론으로 적은 행이 없다.
+"검증" 열은 이 저장소에서 그대로 재현할 수 있는지까지 구분한다 — 재현 스크립트가 있는 행과
+손으로 한 번 확인한 행은 다르다.
 
 | 환경 | JSX 위치 | 검증 |
 |---|---|---|
-| Vite + `@vitejs/plugin-react` | 됨 | 실제 Chromium 렌더 |
-| Next.js 15·16 — webpack | 됨 (서버 컴포넌트 포함) | `next dev` 실측 |
-| Next.js 15·16 — **Turbopack** | 됨 (서버 컴포넌트 포함) | `next dev --turbopack` 실측 |
+| Vite + `@vitejs/plugin-react` | 됨 | 실제 Chromium 렌더 (`playground/vite/e2e.mjs`) |
+| Next.js 15 — webpack | 됨 (서버 컴포넌트 포함) | `next dev` 실측 (`playground/next`, next ^15.1.0) |
+| Next.js 15 — **Turbopack** | 됨 (서버 컴포넌트 포함) | `next dev --turbopack` 실측 (`playground/next`) |
+| Next.js 16 | 됨 | 수동 실측 — 저장소에 재현 스크립트 없음 |
 | webpack 단독 (CRA 포함) | 됨 | 번들 실측 + 실서비스 앱(React 17 + webpack 5 + styled-components) |
 | **rspack** | 됨 | 번들 실측 |
 | **rollup** | 됨 | 번들 실측 |
@@ -206,3 +209,7 @@ node verify-esbuild.mjs
 `playground/next`는 tarball 설치를 쓴다. Turbopack이 프로젝트 루트 밖으로 나가는
 심볼릭 링크(`file:../..`)를 해석하지 못해서다. `src`를 고치면
 `npm run build && npm pack` 후 다시 설치해야 반영된다.
+
+`npm pack`은 `package.json`의 현재 버전으로 파일명을 만든다. 즉 버전을 올린 뒤에는
+`playground/next/package.json`의 `react-code-locator` 핀도 새 tarball 파일명으로 같이 바꿔야
+그 버전을 검증하게 된다. 안 바꾸면 재검증이 예전 artifact를 대상으로 돌아간다.

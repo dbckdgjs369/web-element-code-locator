@@ -1,305 +1,106 @@
 # Improvement Notes
 
-code-inspector-plugin 분석을 통해 도출한 최적화 및 성능 개선 항목.
+원래 이 문서는 v1(`transform.ts` 재파싱 + `unplugin` 어댑터) 기준으로 작성됐다.
+v2에서 그 파일들이 사라졌고 대부분의 항목이 반영됐으므로, 아래는 **현재 코드 기준**으로 다시 정리한 것이다.
+
+- 반영된 항목은 착지한 위치(`파일:줄`)를 적었다.
+- v1 파일에만 해당했던 항목은 "무효"로 표시했다 — 개선이 아니라 대상 소멸이다.
+- 남은 항목만 "열린 항목"에 있다.
 
 ---
 
-## 1. MagicString 도입 (transform.ts)
+## 반영 완료
 
-**현재 문제:**
+| 이전 # | 항목 | 착지 위치 |
+|---|---|---|
+| 2 | mousemove rAF throttle | `src/runtime.ts:329` — 프레임당 한 번만 hit-test |
+| 3 | 호버 결과를 클릭에서 재사용 | `src/runtime.ts:293`(`cached`), `src/runtime.ts:298-302`(`resultFor`) |
+| 4 | Fiber 키 탐색 WeakMap 캐싱 | `src/locate.ts:50-59` — `Object.keys()` 결과를 요소별로 캐시 |
+| 5 | 후보 dedup에 Set 사용 | `src/locate.ts:129-130` — `seenJsx` / `seenComponent` |
+| 7 | `normalizeSource` regex 상수화 | `src/paths.ts:40` — `SOURCE_RE` 모듈 상수 |
+| 8 | `isLocatorElement`를 WeakSet으로 | `src/runtime.ts:42` — `ownElements`, 등록은 `own()`(`:50`) |
+| 9-1 | source map 제거 | `tsup.config.ts` — `sourcemap` 미설정(기본 false). 현재 `dist` 전체 320KB |
 
-```typescript
-// 매 삽입마다 전체 문자열 슬라이스 + 연결 → O(n * m)
-for (const { at, text } of insertions) {
-  result = result.slice(0, at) + text + result.slice(at);
-}
-```
-
-JSX 요소가 많고 파일이 클수록 삽입 횟수 × 파일 길이만큼 문자열 복사 발생.
-
-**개선안:**
-
-```typescript
-import MagicString from "magic-string";
-
-const s = new MagicString(code);
-for (const { at, text } of insertions) {
-  s.appendLeft(at, text); // 내부 segment 리스트에 O(1) 추가
-}
-return { code: s.toString(), map: s.generateMap() };
-```
-
-MagicString은 이중 연결 리스트 기반으로 O(1) 삽입. 소스맵 자동 생성 보너스까지 있음 (현재 소스맵 미반환).
-
-**우선순위:** 높음 (파일이 클수록 효과 큼)
+3번은 반영되면서 모드까지 캐시 키에 들어갔다(`{ target, mode, result }`). 모드만 바꿨을 때
+이전 모드의 결과가 그대로 나오는 문제를 같이 막는다.
 
 ---
 
-## 2. mousemove rAF throttle (runtime.ts)
+## 무효 (대상 파일 소멸)
 
-**현재 문제:**
-
-```typescript
-const mouseMoveHandler = (event: MouseEvent) => {
-  if (!triggerActive) return;
-  // 마우스 이동 시마다 매번 호출 → 최대 60fps로 Fiber 탐색
-  const result = locateComponentSource(event.target, currentMode, projectRoot);
-  highlight?.update(elementTarget, result.source);
-};
-```
-
-Fiber 트리 탐색은 상위로 올라가는 연산. 마우스가 빠르게 움직이면 초당 수십 번 실행됨.
-
-**개선안:**
-
-```typescript
-let rafId: number | null = null;
-
-const mouseMoveHandler = (event: MouseEvent) => {
-  if (!triggerActive) return;
-  if (rafId) return; // 이미 예약된 프레임 있으면 스킵
-
-  const target = event.target;
-  rafId = requestAnimationFrame(() => {
-    rafId = null;
-    const result = locateComponentSource(target, currentMode, projectRoot);
-    // ...
-  });
-};
-```
-
-**우선순위:** 높음 (UX 직결)
+| 이전 # | 항목 | 사유 |
+|---|---|---|
+| 1 | MagicString 도입 | `src/transform.ts`가 없다. v2에는 소스 문자열을 슬라이스·연결하는 경로가 아예 없다 — Babel 훅은 AST 노드를 추가하고(`src/babel/plugin.ts`), 그 외 통합은 모듈 해석만 바꾼다 |
+| 6 | `appends` 죽은 코드 제거 | 같은 파일과 함께 사라졌다 |
+| 9-2 | CJS/ESM 이중 빌드 축소 | 축소 대상이 아니다. `package.json` exports가 서브패스마다 `import`/`require` 조건을 노출하므로 두 포맷이 공개 계약이고, 런타임 의존성이 0개가 된 뒤로는(`package.json`에 `dependencies` 없음, `dist` 전체 320KB) 이중 빌드의 용량 부담 자체가 없다 |
 
 ---
 
-## 3. mousemove 결과를 click에서 재탐색 (runtime.ts)
+## 열린 항목
 
-**현재 문제:**
+### 1. 자동화된 테스트가 없다
 
-```typescript
-const mouseMoveHandler = (event: MouseEvent) => {
-  const result = locateComponentSource(event.target, ...); // 1번 탐색
-  highlight?.update(elementTarget, result.source);
-};
+`test/`가 v2 교체와 함께 삭제됐고 `package.json`에 `test` 스크립트가 없다. 현재 검증 수단은
+`playground/*`의 스크립트 전부(`verify.mjs`, `e2e.mjs`, `check.mjs`, `verify-webpack.mjs` …)이고,
+각각 별도 `npm install`과 실제 브라우저·번들러 실행을 요구한다.
 
-const handler = (event: MouseEvent) => {
-  const result = locateComponentSource(event.target, ...); // 또 탐색 (중복)
-  handleLocate(result);
-};
-```
+번들러 없이 단위로 돌 수 있는 부분이 분명히 있다:
 
-클릭 직전 mousemove에서 이미 결과를 구했는데 click에서 동일 대상을 다시 탐색.
+- `src/paths.ts` — `stripVirtualRoot` / `toProjectRelative` / `isProjectLocalFile`. 순수 함수이고
+  Turbopack `[project]/` 마커, 절대→상대 변환, `node_modules` 판정이 모두 회귀에 취약하다.
+- `src/rsc.ts:38` `FRAME_RE` — owner stack 프레임 파싱. 입력 문자열 두 종(webpack·Turbopack)이
+  주석에 이미 실측값으로 적혀 있어 그대로 픽스처가 된다.
+- `src/wrap.ts` `wrapJsxDev` — 가짜 `jsxDEV`를 넘겨 레지스트리에 무엇이 들어가는지, `__source`가
+  없을 때 조용히 통과하는지.
+- `src/editors.ts` `parseFileLocation` / `buildEditorArgs`.
 
-**개선안:**
+**우선순위:** 높음. 이 목록은 전부 문자열 처리이고, 지금은 브라우저를 띄우지 않으면 깨진 걸 알 수 없다.
 
-```typescript
-let lastLocateResult: { target: Element; result: LocatorResult } | null = null;
+### 2. `locate()`가 매 프레임 fiber 트리를 루트까지 전부 훑는다
 
-const mouseMoveHandler = (event: MouseEvent) => {
-  const result = locateComponentSource(event.target, ...);
-  if (result) lastLocateResult = { target: elementTarget, result };
-};
+`collect()`(`src/locate.ts:126-156`)는 조기 종료가 없다. 후보를 찾은 뒤에도 `return` 체인을
+루트까지 올라간다. 호버는 프레임당 한 번 이 함수를 부른다.
 
-const handler = (event: MouseEvent) => {
-  // 같은 target이면 캐시 재사용
-  const result =
-    lastLocateResult?.target === elementTarget
-      ? lastLocateResult.result
-      : locateComponentSource(event.target, ...);
-};
-```
+조기 종료가 자명하지 않은 이유가 있다. `resolve()`는 "가장 가까운 로컬 컴포넌트 정의 파일"을 먼저 정하고
+그 파일 안의 JSX 후보를 찾으므로(`src/locate.ts:167-180`), 첫 후보만 보고 끊으면 styled-components를
+별 파일로 모아둔 프로젝트에서 답이 바뀐다. 실제로 바꾸려면 그 규칙을 유지하는 종료 조건을 먼저 정의해야 한다.
 
-**우선순위:** 중간
+**우선순위:** 중간. 프레임당 1회로 이미 throttle돼 있으므로 측정 없이 손대지 말 것.
 
----
+### 3. 호버 캐시가 한 칸이다
 
-## 4. Fiber 키 탐색 WeakMap 캐싱 (runtime.ts)
+`cached`(`src/runtime.ts:293`)는 단일 슬롯이다. 두 요소 사이를 왕복하면 매번 재탐색한다.
+`WeakMap<Element, Record<LocatorMode, LocatorResult>>`로 바꾸면 사라지는 비용이지만,
+2번을 재보기 전에는 실익이 불분명하다.
 
-**현재 문제:**
+**우선순위:** 낮음.
 
-```typescript
-function getReactFiberKey(element: Element) {
-  // 매번 Object.keys() 호출 → 요소의 모든 키 열거
-  return Object.keys(element).find(
-    (key) => key.startsWith("__reactFiber$") || key.startsWith("__reactInternalInstance$")
-  );
-}
-```
+### 4. regex 상수화가 두 곳 남았다
 
-같은 요소에 mousemove가 반복될 때마다 `Object.keys()` 재호출.
+7번을 `src/paths.ts`에만 적용했다. 같은 패턴이 `src/dev-server.ts:58`(`editorRequestFor`,
+"Open in editor"마다 실행)과 `src/editors.ts:46,50`에 리터럴로 남아 있다.
+`src/runtime.ts:155`의 라벨 정리 regex 두 개는 호버 프레임마다 실행된다.
 
-**개선안:**
+리터럴 정규식은 V8이 패턴을 컴파일해두므로 실측 이득은 거의 없다. 일관성 항목으로만 기록한다.
 
-```typescript
-const fiberKeyCache = new WeakMap<Element, string | undefined>();
+**우선순위:** 낮음.
 
-function getReactFiberKey(element: Element) {
-  if (fiberKeyCache.has(element)) return fiberKeyCache.get(element);
-  const key = Object.keys(element).find(
-    (k) => k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$")
-  );
-  fiberKeyCache.set(element, key);
-  return key;
-}
-```
+### 5. `src/rsc.ts`의 메모 맵이 무한 증가한다
 
-**우선순위:** 중간
+`resolved` / `inFlight`(`src/rsc.ts:81-82`)는 문자열 키 `Map`이라 WeakMap처럼 비워지지 않는다.
+키는 `file|line|column`이므로 상한은 "세션 중 호버한 서로 다른 서버 프레임 수"다.
+실사용에서 문제가 될 규모는 아니지만, 이 파일에서 유일하게 해제 경로가 없는 상태다.
 
----
-
-## 5. resolveSourceCandidates dedup에 Set 사용 (runtime.ts)
-
-**현재 문제:**
-
-```typescript
-if (file && !jsxCandidates.some((c) => c.source === jsxSource)) {
-  jsxCandidates.push({ source: jsxSource, file });
-}
-```
-
-Fiber 트리가 깊으면 `.some()` 탐색이 O(n²).
-
-**개선안:**
-
-```typescript
-const jsxSourceSet = new Set<string>();
-const componentSourceSet = new Set<string>();
-
-if (file && !jsxSourceSet.has(jsxSource)) {
-  jsxSourceSet.add(jsxSource);
-  jsxCandidates.push({ source: jsxSource, file });
-}
-```
-
-**우선순위:** 낮음~중간
-
----
-
-## 6. 죽은 코드 제거 — appends 배열 (transform.ts)
-
-**현재 문제:**
-
-```typescript
-const appends: string[] = []; // 선언됨
-
-// ... 코드 어디서도 push 안 함
-
-if (appends.length > 0) {  // 항상 false
-  result += appends.join("");
-}
-```
-
-`appends`는 선언만 되고 사용되지 않음.
-
-**개선안:** `appends` 관련 코드 전부 제거.
-
-**우선순위:** 낮음 (코드 정리)
-
----
-
-## 7. normalizeSource regex 상수화 (runtime.ts)
-
-**현재 문제:**
-
-```typescript
-function normalizeSource(source: string, projectRoot: string | undefined) {
-  const match = source.match(/^(.*):(\d+):(\d+)$/); // 함수 호출마다 regex 객체 생성
-}
-```
-
-**개선안:**
-
-```typescript
-const SOURCE_PATTERN = /^(.*):(\d+):(\d+)$/; // 모듈 레벨 상수
-
-function normalizeSource(source: string, projectRoot: string | undefined) {
-  const match = source.match(SOURCE_PATTERN);
-}
-```
-
-**우선순위:** 낮음
-
----
-
-## 8. isLocatorElement WeakSet으로 변경 (runtime.ts)
-
-**현재 문제:**
-
-```typescript
-const LOCATOR_ATTRS = ["data-react-code-locator", ...]; // 5개
-function isLocatorElement(el: Element) {
-  return LOCATOR_ATTRS.some((attr) => el.hasAttribute(attr)); // 최대 5번 attribute 체크
-}
-```
-
-mousemove 이벤트마다 5번 attribute 체크.
-
-**개선안:**
-
-```typescript
-const locatorElements = new WeakSet<Element>();
-
-// overlay, label, menu 등 생성 시 등록
-locatorElements.add(overlay);
-locatorElements.add(label);
-
-function isLocatorElement(el: Element) {
-  return locatorElements.has(el); // O(1)
-}
-```
-
-**우선순위:** 낮음
-
----
-
-## 9. npm 배포 패키지 크기 최적화 (tsup.config.ts)
-
-현재 npm unpacked 크기 ~7MB. code-inspector-plugin은 18.1KB. 원인 두 가지:
-
-### 9-1. Source Map 포함 (`sourcemap: true`)
-
-```
-index.js         420KB  ← 실제 코드
-index.js.map    1.2MB   ← 매핑 정보 (본체의 3배)
-```
-
-source map은 브라우저 devtools 디버깅용. 의존성이 번들에 포함된 상태라 map이 특히 크게 나옴.
-라이브러리 배포 시 사용자에게 필요 없음.
-
-**개선안:** `tsup.config.ts`에서 `sourcemap: true` → `sourcemap: false`
-
-**효과:** ~3.7MB 제거 (dist 6.6MB → ~2.9MB)
-
----
-
-### 9-2. CJS/ESM 이중 빌드 (`format: ["esm", "cjs"]`)
-
-현재 entry 3개 × 포맷 2개 = 6개 번들 파일 (+ map까지 12개).
-ESM/CJS 둘 다 필요한 이유는 환경 호환성이지만, **의존성이 번들에 포함된 상태**에서 이중 빌드하므로 용량이 2배.
-
-| 환경 | 사용 포맷 |
-|---|---|
-| Vite, Rollup, 최신 Node.js | ESM (`.js`) |
-| webpack 4, Jest, 구버전 Node.js | CJS (`.cjs`) |
-
-현재 `package.json` exports에서 `import` / `require` 조건으로 분기하므로 이중 빌드 자체는 필수.
-단, source map만 제거해도 이중 빌드의 용량 부담이 절반으로 줄어듦.
-
-**우선순위:** 높음 (9-1만 적용해도 크기 ~55% 감소)
+**우선순위:** 낮음.
 
 ---
 
 ## 우선순위 요약
 
 | # | 항목 | 파일 | 영향도 | 난이도 |
-|---|------|------|--------|--------|
-| 1 | MagicString 도입 | transform.ts | 높음 | 낮음 |
-| 2 | mousemove rAF throttle | runtime.ts | 높음 | 낮음 |
-| 9-1 | source map 제거 | tsup.config.ts | 높음 (용량) | 낮음 |
-| 3 | mousemove 결과 캐싱 | runtime.ts | 중간 | 낮음 |
-| 4 | Fiber 키 WeakMap 캐시 | runtime.ts | 중간 | 낮음 |
-| 9-2 | CJS/ESM 이중 빌드 | tsup.config.ts | 중간 (용량) | 중간 |
-| 5 | dedup Set 변경 | runtime.ts | 낮음~중간 | 낮음 |
-| 6 | appends 죽은 코드 제거 | transform.ts | 없음 | 낮음 |
-| 7 | normalizeSource regex 상수화 | runtime.ts | 낮음 | 낮음 |
-| 8 | isLocatorElement WeakSet | runtime.ts | 낮음 | 낮음 |
+|---|---|---|---|---|
+| 1 | 순수 함수 단위 테스트 도입 | paths·rsc·wrap·editors | 높음 | 낮음 |
+| 2 | `collect()` 조기 종료 | locate.ts | 중간 | 중간(규칙 정의가 선행) |
+| 3 | 호버 캐시 다중 슬롯 | runtime.ts | 낮음 | 낮음 |
+| 4 | 남은 regex 상수화 | dev-server·editors·runtime | 낮음(일관성) | 낮음 |
+| 5 | rsc 메모 맵 상한 | rsc.ts | 낮음 | 낮음 |

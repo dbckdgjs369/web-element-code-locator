@@ -8,7 +8,7 @@
   "dependencies": {
     "next": "^15.1.0",
     "react": "^19.0.0",
-    "react-code-locator": "file:../../react-code-locator-1.0.0.tgz",
+    "react-code-locator": "file:../../react-code-locator-1.0.2.tgz",
     "react-dom": "^19.0.0"
   }
 }
